@@ -1,0 +1,174 @@
+class DataException (Lines 38–41)
+A simple custom exception class. Just wraps Python's base Exception with a message. Used throughout to raise domain-specific errors like "USI INCONNU" or "file broken".
+
+class Data (Lines 44–110)
+Purpose: Read and split the input CSV into separate lists
+Key Attributes
+AttributeWhat It HoldslistDictDataAll raw rows from CSVlistDictAchatsRows that are purchases (surveylevel 2 or 3)listDictPaniersRows that are baskets (surveylevel 1)listBOShopShop reference data from a flat filelistPropProposition list from SFTPcountEndPanierCount of end-of-basket markers
+__init__(self, reader)
+
+Calls readBOFile() and readPropFile() first
+Then reads every CSV row into listDictData using deepcopy to avoid reference issues
+
+dataBreakUp(self)
+The most important method in this class. Splits raw rows into the right lists:
+
+surveylevel == '1' → it's a basket → goes to listDictPaniers
+surveylevel == '2' or '3' → it's a purchase → checks if "delete=1" exists in surveydata; if yes it's still added as a purchase (deleteflag handled later)
+Anything else → increments countEndPanier
+
+readBOFile(self)
+Reads a shop reference file (Shops_BO.txt) from the Datapanel server. Builds a dictionary listBOShop mapping shop code → shop details. Used later to enrich basket data.
+readPropFile(self)
+Connects to an SFTP server (Cephei) and downloads proposition.txt. Reads it to build listProp — a list of valid proposition IDs. Used to validate purchase data.
+
+class Achat (Lines 113–306)
+Purpose: Represents a single purchase record
+defaultRecord Fields
+These are all the database columns for the achats table:
+FieldMeaningidachatPurchase IDidpanierParent basket IDbarcodeProduct barcode (default: NG00000000000)qaachat / sdachatQuantity and spend amountcodeshopachatShop codedeleteflagSoft delete flag (3 = deleted)dateachatPurchase datebrandpolling / produitpollingBrand and product codessemWeek numberCIVICivil characteristics stringentryidHousehold entry IDswitchBoFlag for German HD adjustment
+__init__(self, inputDic, logs_kpi_daily)
+The constructor that builds an Achat from a CSV row:
+
+Copies defaultRecord as base
+Maps CSV fields to record fields
+Special handling for level1ref → sets idpanier
+Special handling for surveydata → calls WriteSurveyDataInfo() to parse the complex survey string
+Sets sourceachat = 19 (hardcoded source identifier)
+If any error occurs → sets self.valid = 0
+
+WriteSurveyDataInfo(self, str)
+Most complex method in Achat. Parses the raw surveydata string which contains embedded key=value pairs separated by semicolons:
+
+Extracts Prix → sets sdachat (spend amount)
+Extracts QA → sets qaachat (quantity)
+Extracts barcode → pads to 13 digits if shorter
+Extracts brand, shop_other, brand_other, produit
+Extracts CIVI codes (civil characteristics)
+Validates produit — sets valid = 0 if non-conforming
+Returns (listQS, listCIVI) tuple
+
+SortQS(self)
+Sorts the qsachat field entries by key numerically. Ensures consistent ordering of survey question answers before DB insert.
+UpdateFromPanier(self, panier, data)
+Links a purchase to its parent basket by copying basket fields into the purchase:
+
+codeshopachat ← basket's codeshoppanier
+codeusipanier, codemagpanier
+dateachat ← basket's datepanier
+sem ← basket's sem
+Then calls SwitchBO(data) for special German HD logic
+
+SwitchBO(self, data)
+Handles German Hard Discount shop mapping. Uses the oldBarcode length and codeshopachat to determine the correct boachat (back-office achat code). Checks against specific shop codes like 1125, 430, 828, 429.
+InsertAchat(self, cursor)
+Simple INSERT into achats_%d table (week-partitioned). Logs exception with sem/idpanier/idachat if it fails.
+
+class Panier (Lines 308–552)
+Purpose: Represents a shopping basket
+defaultRecord Fields
+FieldMeaningidpanierBasket IDidfoyerHousehold IDcodeindivIndividual codesdpanierBasket spend amountcodeshoppanierShop codedatepanierBasket dateqspanierSurvey questions stringsemISO week numberentryidEntry IDvalidPanierValidation flagssAchatFlag: basket has no purchases
+__init__(self, inputDic, cursor)
+Constructs a basket from a CSV row:
+
+Validates username — rejects if starts with 'reactoruser'
+Calls UserNameDecode() to extract idfoyer from the username string
+Parses surveydata via WriteSurveyDataInfo()
+Date validation:
+
+If date is None → valid = 0
+If date is before 01/11/2016 → valid = 0 (too old)
+If date is in the future → corrects to today and logs a warning
+Valid dates → calls FindSem() to get the ISO week
+
+
+Shop validation:
+
+If codeshoppanier == 1 → it's a hair salon, special case
+If codeusipanier == 0 → calls AddInfoShop() to look up shop info
+If no codeshop → valid = 0
+
+
+
+UserNameDecode(self, str)
+Extracts characters at positions 3–9 of the username string to get the idfoyer. A simple slicing operation: str[3:9].
+WriteSurveyDataInfo(self, str) (Panier version)
+Similar to Achat's version but extracts basket-specific fields:
+
+shop → codeshoppanier
+shop_other → alternative shop name
+shopSpend → sdpanier spend amount
+date → datepanier (converts format from %Y-%m-%d to %m.%d.%Y)
+cartefidelite → loyalty card
+codeindiv → individual code
+usi → codeusipanier
+
+SortQS(self) (Panier version)
+Same sorting logic as Achat's — sorts qspanier entries numerically by key.
+AddInfoShop(self)
+Looks up shop metadata from the database when codeusipanier is unknown. Opens a separate DB connection (infosServerGest) and runs a complex SQL query joining changement_magasin, usila, and magasin_par_defaut tables to find:
+
+codemagpanier (shop mag code)
+codeusipanier (USI code)
+
+Two query paths: one when USI is 0 (unknown), one when USI is already known.
+FindSem(self, cursor)
+Queries refdo.periodicites_delivery table to find which ISO week (CODE_PERIODICITE) the basket date falls into. Returns the week code. If not found → raises exception.
+InsertPanier(self, cursor)
+INSERT into panier_%d table (week-partitioned). Logs sem/idpanier on failure.
+
+class Polling (Lines 554–780)
+Purpose: Represents a polling/product verification record linked to a purchase
+defaultRecord Fields
+FieldMeaningidachatLinked purchase IDqapolling / sdpollingQuantity and spend for pollingbrandpollingBrand codeproduitpollingProduct codecivipollingCivil characteristics (decoded)qiripollingQIRI characteristicsbarcodeProduct barcodeCIVIRaw CIVI stringsemWeek
+__init__(self, achat, curs, cursAlgol, data)
+Copies all relevant fields from its parent Achat. Then calls DecodeCIVI() which is the most complex operation.
+DecodeCIVI(self, cursor, achat, data, curs)
+The most complex method in the entire codebase. Decodes civil/product characteristics:
+
+Checks if barcode is NG (no barcode) — special handling
+Validates product code against produit_lenght_civi table
+For each CIVI code in listCivi:
+
+Checks against correspondance_prod_couple_civi table (characteristics)
+Validates the value against allowed values in the same table
+Builds listCiviOK with valid entries
+
+
+Checks for brand (brandpolling != 0) and adjusts CIVI length by -13
+Searches QIRI associations from correspondance_civi_qiri table
+Validates CIVI length against produit_lenght_CIVI table
+Sorts and formats final strCivi and strQiri strings
+If check == 0 at end → sets achat.defaultRecord['deleteflag'] = 9 (marks as non-compliant)
+Returns (strCivi, strQiri) tuple
+
+
+Summary
+core_ori.py is the domain model layer of this pipeline. It contains:
+ClassRoleDataReads CSV + reference files, splits into typed listsAchatModels a purchase, parses survey data, inserts to DBPanierModels a basket, validates dates/shops, inserts to DBPollingModels a product polling record, decodes CIVI/QIRI characteristics
+The key flow is: Data splits the CSV → Panier and Achat objects are created → Achat objects are linked to Panier via UpdateFromPanier → Polling objects are created from Achat → everything is validated and inserted into the database.
+
+Questions to Ask the Developer
+About Data Class
+
+Why is readPropFile connecting via SFTP instead of reading locally — is the proposition file always remote?
+What happens if the SFTP connection fails — does the whole batch abort?
+
+About Achat
+
+What does sourceachat = 19 mean — is 19 a specific source system identifier?
+What is the business meaning of deleteflag = 3 vs deleteflag = 9?
+Why is the default barcode NG00000000000 — is NG a special category?
+
+About Panier
+
+Why is 01/11/2016 the cutoff date — was that a system launch date?
+What is a reactoruser and why are those baskets rejected?
+Why does a hair salon (codeshoppanier == 1) get special treatment?
+
+About Polling / DecodeCIVI
+
+What is CIVI exactly in the business domain — is it a product characteristic taxonomy?
+What is QIRI — is it a separate product classification system?
+Why does having a brand reduce the CIVI length by exactly 13?
+Is DecodeCIVI a performance bottleneck given it runs multiple DB queries per purchase?
