@@ -1,174 +1,161 @@
-class DataException (Lines 38–41)
-A simple custom exception class. Just wraps Python's base Exception with a message. Used throughout to raise domain-specific errors like "USI INCONNU" or "file broken".
+1. optparse → argparse
 
-class Data (Lines 44–110)
-Purpose: Read and split the input CSV into separate lists
-Key Attributes
-AttributeWhat It HoldslistDictDataAll raw rows from CSVlistDictAchatsRows that are purchases (surveylevel 2 or 3)listDictPaniersRows that are baskets (surveylevel 1)listBOShopShop reference data from a flat filelistPropProposition list from SFTPcountEndPanierCount of end-of-basket markers
-__init__(self, reader)
+Before:
 
-Calls readBOFile() and readPropFile() first
-Then reads every CSV row into listDictData using deepcopy to avoid reference issues
+python
+import optparse
+...
+parser = optparse.OptionParser(version="%prog " + __version__)
+parser.add_option('-c', '--control', dest='control', default=False, help='''Fichier de control''')
+parser.add_option('-d', '--database', dest='database', default=False, help='''Base de donnee SQLServer''')
+parser.add_option('-s', '--surveys', dest='surveys', default=False, help='''Liste des surveys a extraire''')
+parser.add_option('-v', '--versions', dest='versions', default=False, help='''Liste des versions a extraire''')
+parser.add_option('-o', '--output-directory', dest='output_directory', default=False, help='''Repertoire ou seront stockes les fichiers extraits''')
+parser.add_option('-i', '--last-id-file', dest='lastid_file', default=False, help='''Fichier contenant le dernier id traite''')
+parser.add_option('-m', '--mode', dest='mode', default=False, help='''Mode d export (s = synchro (execution DLL), e = export)''')
+parser.add_option('-l', '--log-file', dest='log_file', default=False, help='''Fichier Log''')
+parser.description = "Export Achats InHome %s" % __version__
+options, args = parser.parse_args()
 
-dataBreakUp(self)
-The most important method in this class. Splits raw rows into the right lists:
+After:
 
-surveylevel == '1' → it's a basket → goes to listDictPaniers
-surveylevel == '2' or '3' → it's a purchase → checks if "delete=1" exists in surveydata; if yes it's still added as a purchase (deleteflag handled later)
-Anything else → increments countEndPanier
+python
+import argparse
+...
+parser = argparse.ArgumentParser(description=f"Export Achats InHome {__version__}")
+parser.add_argument('-c', '--control', dest='control', default=False, help='Fichier de control')
+parser.add_argument('-d', '--database', dest='database', default=False, help='Base de donnee SQLServer')
+parser.add_argument('-s', '--surveys', dest='surveys', default=False, help='Liste des surveys a extraire')
+parser.add_argument('-v', '--versions', dest='versions', default=False, help='Liste des versions a extraire')
+parser.add_argument('-o', '--output-directory', dest='output_directory', default=False, help='Repertoire ou seront stockes les fichiers extraits')
+parser.add_argument('-i', '--last-id-file', dest='lastid_file', default=False, help='Fichier contenant le dernier id traite')
+parser.add_argument('-m', '--mode', dest='mode', default=False, help='Mode d export (s = synchro (execution DLL), e = export)')
+parser.add_argument('-l', '--log-file', dest='log_file', default=False, help='Fichier Log')
+parser.add_argument('--version', action='version', version=f"%(prog)s {__version__}")
+options = parser.parse_args()
 
-readBOFile(self)
-Reads a shop reference file (Shops_BO.txt) from the Datapanel server. Builds a dictionary listBOShop mapping shop code → shop details. Used later to enrich basket data.
-readPropFile(self)
-Connects to an SFTP server (Cephei) and downloads proposition.txt. Reads it to build listProp — a list of valid proposition IDs. Used to validate purchase data.
+Note: argparse uses attribute access the same way (options.control, options.database, etc.) so the rest of your code below (lines 493–505) doesn't need to change.
 
-class Achat (Lines 113–306)
-Purpose: Represents a single purchase record
-defaultRecord Fields
-These are all the database columns for the achats table:
-FieldMeaningidachatPurchase IDidpanierParent basket IDbarcodeProduct barcode (default: NG00000000000)qaachat / sdachatQuantity and spend amountcodeshopachatShop codedeleteflagSoft delete flag (3 = deleted)dateachatPurchase datebrandpolling / produitpollingBrand and product codessemWeek numberCIVICivil characteristics stringentryidHousehold entry IDswitchBoFlag for German HD adjustment
-__init__(self, inputDic, logs_kpi_daily)
-The constructor that builds an Achat from a CSV row:
+2. codecs.open → built-in open
 
-Copies defaultRecord as base
-Maps CSV fields to record fields
-Special handling for level1ref → sets idpanier
-Special handling for surveydata → calls WriteSurveyDataInfo() to parse the complex survey string
-Sets sourceachat = 19 (hardcoded source identifier)
-If any error occurs → sets self.valid = 0
+Before:
 
-WriteSurveyDataInfo(self, str)
-Most complex method in Achat. Parses the raw surveydata string which contains embedded key=value pairs separated by semicolons:
+python
+f = codecs.open(output_file, "w", encoding, 'ignore')
 
-Extracts Prix → sets sdachat (spend amount)
-Extracts QA → sets qaachat (quantity)
-Extracts barcode → pads to 13 digits if shorter
-Extracts brand, shop_other, brand_other, produit
-Extracts CIVI codes (civil characteristics)
-Validates produit — sets valid = 0 if non-conforming
-Returns (listQS, listCIVI) tuple
+After:
 
-SortQS(self)
-Sorts the qsachat field entries by key numerically. Ensures consistent ordering of survey question answers before DB insert.
-UpdateFromPanier(self, panier, data)
-Links a purchase to its parent basket by copying basket fields into the purchase:
+python
+f = open(output_file, "w", encoding=encoding, errors='ignore')
 
-codeshopachat ← basket's codeshoppanier
-codeusipanier, codemagpanier
-dateachat ← basket's datepanier
-sem ← basket's sem
-Then calls SwitchBO(data) for special German HD logic
+You can then remove import codecs entirely if it's not used elsewhere.
 
-SwitchBO(self, data)
-Handles German Hard Discount shop mapping. Uses the oldBarcode length and codeshopachat to determine the correct boachat (back-office achat code). Checks against specific shop codes like 1125, 430, 828, 429.
-InsertAchat(self, cursor)
-Simple INSERT into achats_%d table (week-partitioned). Logs exception with sem/idpanier/idachat if it fails.
+3. Parameterized SQL instead of string interpolation
 
-class Panier (Lines 308–552)
-Purpose: Represents a shopping basket
-defaultRecord Fields
-FieldMeaningidpanierBasket IDidfoyerHousehold IDcodeindivIndividual codesdpanierBasket spend amountcodeshoppanierShop codedatepanierBasket dateqspanierSurvey questions stringsemISO week numberentryidEntry IDvalidPanierValidation flagssAchatFlag: basket has no purchases
-__init__(self, inputDic, cursor)
-Constructs a basket from a CSV row:
+Before:
 
-Validates username — rejects if starts with 'reactoruser'
-Calls UserNameDecode() to extract idfoyer from the username string
-Parses surveydata via WriteSurveyDataInfo()
-Date validation:
+python
+sql = "SELECT lastEntryID FROM psGenSurvey WHERE survey='%s' AND surveyVersion = %s" % (survey, surveyversion)
+cursor.execute(sql)
 
-If date is None → valid = 0
-If date is before 01/11/2016 → valid = 0 (too old)
-If date is in the future → corrects to today and logs a warning
-Valid dates → calls FindSem() to get the ISO week
+After:
 
+python
+sql = "SELECT lastEntryID FROM psGenSurvey WHERE survey=? AND surveyVersion = ?"
+cursor.execute(sql, (survey, surveyversion))
 
-Shop validation:
+Same fix applies to getCount:
 
-If codeshoppanier == 1 → it's a hair salon, special case
-If codeusipanier == 0 → calls AddInfoShop() to look up shop info
-If no codeshop → valid = 0
+Before:
 
+python
+sql = "SELECT count(*) FROM psData WHERE survey in (%s)" % (
+    ",".join(map(lambda s: "'%s'" % s, surveylist))
+)
+cursor.execute(sql)
 
+After:
 
-UserNameDecode(self, str)
-Extracts characters at positions 3–9 of the username string to get the idfoyer. A simple slicing operation: str[3:9].
-WriteSurveyDataInfo(self, str) (Panier version)
-Similar to Achat's version but extracts basket-specific fields:
+python
+placeholders = ",".join("?" for _ in surveylist)
+sql = f"SELECT count(*) FROM psData WHERE survey in ({placeholders})"
+cursor.execute(sql, surveylist)
 
-shop → codeshoppanier
-shop_other → alternative shop name
-shopSpend → sdpanier spend amount
-date → datepanier (converts format from %Y-%m-%d to %m.%d.%Y)
-cartefidelite → loyalty card
-codeindiv → individual code
-usi → codeusipanier
+And getpsDataVersionCount:
 
-SortQS(self) (Panier version)
-Same sorting logic as Achat's — sorts qspanier entries numerically by key.
-AddInfoShop(self)
-Looks up shop metadata from the database when codeusipanier is unknown. Opens a separate DB connection (infosServerGest) and runs a complex SQL query joining changement_magasin, usila, and magasin_par_defaut tables to find:
+Before:
 
-codemagpanier (shop mag code)
-codeusipanier (USI code)
+python
+sql = "SELECT survey,surveyVersion,count(*) FROM psData WHERE survey in ('%s') GROUP BY survey,surveyVersion ORDER BY survey,surveyVersion" % (surveys)
+cursor.execute(sql)
 
-Two query paths: one when USI is 0 (unknown), one when USI is already known.
-FindSem(self, cursor)
-Queries refdo.periodicites_delivery table to find which ISO week (CODE_PERIODICITE) the basket date falls into. Returns the week code. If not found → raises exception.
-InsertPanier(self, cursor)
-INSERT into panier_%d table (week-partitioned). Logs sem/idpanier on failure.
+After:
 
-class Polling (Lines 554–780)
-Purpose: Represents a polling/product verification record linked to a purchase
-defaultRecord Fields
-FieldMeaningidachatLinked purchase IDqapolling / sdpollingQuantity and spend for pollingbrandpollingBrand codeproduitpollingProduct codecivipollingCivil characteristics (decoded)qiripollingQIRI characteristicsbarcodeProduct barcodeCIVIRaw CIVI stringsemWeek
-__init__(self, achat, curs, cursAlgol, data)
-Copies all relevant fields from its parent Achat. Then calls DecodeCIVI() which is the most complex operation.
-DecodeCIVI(self, cursor, achat, data, curs)
-The most complex method in the entire codebase. Decodes civil/product characteristics:
+python
+placeholders = ",".join("?" for _ in surveys)
+sql = f"SELECT survey,surveyVersion,count(*) FROM psData WHERE survey in ({placeholders}) GROUP BY survey,surveyVersion ORDER BY survey,surveyVersion"
+cursor.execute(sql, surveys)
 
-Checks if barcode is NG (no barcode) — special handling
-Validates product code against produit_lenght_civi table
-For each CIVI code in listCivi:
+And the big Export() query:
 
-Checks against correspondance_prod_couple_civi table (characteristics)
-Validates the value against allowed values in the same table
-Builds listCiviOK with valid entries
+Before:
 
+python
+sql = "SELECT %s FROM psData WHERE survey='%s' AND surveylevel>0 AND entryType!='incomplete' AND surveyVersion=%d  %s ORDER BY endtime,surveyLevel,level2pos" % (
+    ",".join(columns), survey, surveyversion, lastid_cond
+)
+cursor.execute(sql)
 
-Checks for brand (brandpolling != 0) and adjusts CIVI length by -13
-Searches QIRI associations from correspondance_civi_qiri table
-Validates CIVI length against produit_lenght_CIVI table
-Sorts and formats final strCivi and strQiri strings
-If check == 0 at end → sets achat.defaultRecord['deleteflag'] = 9 (marks as non-compliant)
-Returns (strCivi, strQiri) tuple
+After:
 
+python
+sql = "SELECT {} FROM psData WHERE survey=? AND surveylevel>0 AND entryType!='incomplete' AND surveyVersion=? {} ORDER BY endtime,surveyLevel,level2pos".format(
+    ",".join(columns), lastid_cond
+)
+params = [survey, surveyversion]
+if surveyversion in surveyslastid:
+    params.append(lastid)
+cursor.execute(sql, params)
 
-Summary
-core_ori.py is the domain model layer of this pipeline. It contains:
-ClassRoleDataReads CSV + reference files, splits into typed listsAchatModels a purchase, parses survey data, inserts to DBPanierModels a basket, validates dates/shops, inserts to DBPollingModels a product polling record, decodes CIVI/QIRI characteristics
-The key flow is: Data splits the CSV → Panier and Achat objects are created → Achat objects are linked to Panier via UpdateFromPanier → Polling objects are created from Achat → everything is validated and inserted into the database.
+(Note: lastid_cond still needs its %s/? swapped consistently — since it's built separately as " AND %s > %d" % (lastid_col_name, lastid), either keep the lastid value inline as it's an int derived from your own DB read, not user input, or parameterize it too the same way.)
 
-Questions to Ask the Developer
-About Data Class
+4. Batch file writes instead of per-row writes
 
-Why is readPropFile connecting via SFTP instead of reading locally — is the proposition file always remote?
-What happens if the SFTP connection fails — does the whole batch abort?
+Before:
 
-About Achat
+python
+for row in cursor:
+    ...
+    f.write("%s\n" % (";".join(rowout)))
+    nnecrit += 1
 
-What does sourceachat = 19 mean — is 19 a specific source system identifier?
-What is the business meaning of deleteflag = 3 vs deleteflag = 9?
-Why is the default barcode NG00000000000 — is NG a special category?
+After:
 
-About Panier
+python
+BATCH_SIZE = 1000
+write_buffer = []
 
-Why is 01/11/2016 the cutoff date — was that a system launch date?
-What is a reactoruser and why are those baskets rejected?
-Why does a hair salon (codeshoppanier == 1) get special treatment?
+for row in cursor:
+    ...
+    write_buffer.append(";".join(rowout))
+    nnecrit += 1
+    if len(write_buffer) >= BATCH_SIZE:
+        f.write("\n".join(write_buffer) + "\n")
+        write_buffer = []
 
-About Polling / DecodeCIVI
+if write_buffer:
+    f.write("\n".join(write_buffer) + "\n")
 
-What is CIVI exactly in the business domain — is it a product characteristic taxonomy?
-What is QIRI — is it a separate product classification system?
-Why does having a brand reduce the CIVI length by exactly 13?
-Is DecodeCIVI a performance bottleneck given it runs multiple DB queries per purchase?
+5. f-strings instead of % formatting (readability + minor speed)
+
+Before:
+
+python
+return conn, "%s@%s:%s" % (dbuser, dbserver, dbname)
+
+After:
+
+python
+return conn, f"{dbuser}@{dbserver}:{dbname}"
+
+Apply the same substitution pattern throughout log_info(...) calls wherever you see "%s" % var — purely cosmetic/perf, low risk, do it opportunistically rather than all at once.
