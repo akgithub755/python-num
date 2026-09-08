@@ -1,161 +1,163 @@
-1. optparse → argparse
+@page "/ProcessDetail/SiceronKFFFormatter"
+@using Microsoft.AspNetCore.Components.Forms
+@using OnDemandLaunchApp.Models
+@using ProcessQueueLib
+@inject ProgramInfo programInfo
+@inject IJSRuntime JS
+@inject ToastService Toasts
+@namespace OnDemandLaunchApp.Pages.Prism
 
-Before:
+<div class="space-y-6">
 
-python
-import optparse
-...
-parser = optparse.OptionParser(version="%prog " + __version__)
-parser.add_option('-c', '--control', dest='control', default=False, help='''Fichier de control''')
-parser.add_option('-d', '--database', dest='database', default=False, help='''Base de donnee SQLServer''')
-parser.add_option('-s', '--surveys', dest='surveys', default=False, help='''Liste des surveys a extraire''')
-parser.add_option('-v', '--versions', dest='versions', default=False, help='''Liste des versions a extraire''')
-parser.add_option('-o', '--output-directory', dest='output_directory', default=False, help='''Repertoire ou seront stockes les fichiers extraits''')
-parser.add_option('-i', '--last-id-file', dest='lastid_file', default=False, help='''Fichier contenant le dernier id traite''')
-parser.add_option('-m', '--mode', dest='mode', default=False, help='''Mode d export (s = synchro (execution DLL), e = export)''')
-parser.add_option('-l', '--log-file', dest='log_file', default=False, help='''Fichier Log''')
-parser.description = "Export Achats InHome %s" % __version__
-options, args = parser.parse_args()
+    <!-- Description / Documentation -->
+    <div class="border p-4 rounded shadow space-y-2">
+        <h1 class="text-xl font-semibold">SiceronKFFFormatter</h1>
+        <p><strong>Process :</strong> This program allows you to run Siceron in batch mode and convert .cal output files in KFF format to CSV files. This makes it easy to create Power BI reports for Food use.</p>
 
-After:
+        <div>
+            <strong>Information :</strong>
+            <a href="@informationUrl" target="_blank" class="text-teal-700 underline break-all">@informationUrl</a>
+        </div>
+    </div>
 
-python
-import argparse
-...
-parser = argparse.ArgumentParser(description=f"Export Achats InHome {__version__}")
-parser.add_argument('-c', '--control', dest='control', default=False, help='Fichier de control')
-parser.add_argument('-d', '--database', dest='database', default=False, help='Base de donnee SQLServer')
-parser.add_argument('-s', '--surveys', dest='surveys', default=False, help='Liste des surveys a extraire')
-parser.add_argument('-v', '--versions', dest='versions', default=False, help='Liste des versions a extraire')
-parser.add_argument('-o', '--output-directory', dest='output_directory', default=False, help='Repertoire ou seront stockes les fichiers extraits')
-parser.add_argument('-i', '--last-id-file', dest='lastid_file', default=False, help='Fichier contenant le dernier id traite')
-parser.add_argument('-m', '--mode', dest='mode', default=False, help='Mode d export (s = synchro (execution DLL), e = export)')
-parser.add_argument('-l', '--log-file', dest='log_file', default=False, help='Fichier Log')
-parser.add_argument('--version', action='version', version=f"%(prog)s {__version__}")
-options = parser.parse_args()
+    <!-- Process Parameters -->
+    <div class="border p-4 rounded shadow space-y-2">
 
-Note: argparse uses attribute access the same way (options.control, options.database, etc.) so the rest of your code below (lines 493–505) doesn't need to change.
+        <div class="flex items-center gap-3">
+            <label for="txtFichierPro" class="w-28 text-sm font-medium shrink-0">Fichier pro<span class="label-required">*</span></label>
+            <input id="txtFichierPro" class="text-box" placeholder="Choose file..." @bind-value="fichierProPath" @bind-value:event="oninput" readonly />
+            <button class="btn-primary" accept=".*" @onclick="@(() => OpenFileDialog("filePickerPro"))"> Open </button>
+        </div>
 
-2. codecs.open → built-in open
+        <div class="flex items-center gap-3">
+            <label for="txtFichierComment" class="w-28 text-sm font-medium shrink-0">Fichier comment</label>
+            <input id="txtFichierComment" class="text-box" placeholder="Choose file..." @bind-value="fichierCommentPath" @bind-value:event="oninput" readonly />
+            <button class="btn-primary" accept=".*" @onclick="@(() => OpenFileDialog("filePickerComment"))"> Open </button>
+        </div>
 
-Before:
+        <div class="flex items-center gap-3">
+            <label for="txtFichierQui" class="w-28 text-sm font-medium shrink-0">Fichier qui</label>
+            <input id="txtFichierQui" class="text-box" placeholder="Choose file..." @bind-value="fichierQuiPath" @bind-value:event="oninput" readonly />
+            <button class="btn-primary" accept=".*" @onclick="@(() => OpenFileDialog("filePickerQui"))"> Open </button>
+        </div>
 
-python
-f = codecs.open(output_file, "w", encoding, 'ignore')
+        <div class="flex items-center gap-3">
+            <label for="txtFichierQuand" class="w-28 text-sm font-medium shrink-0">Fichier quand</label>
+            <input id="txtFichierQuand" class="text-box" placeholder="Choose file..." @bind-value="fichierQuandPath" @bind-value:event="oninput" readonly />
+            <button class="btn-primary" accept=".*" @onclick="@(() => OpenFileDialog("filePickerQuand"))"> Open </button>
+        </div>
 
-After:
+        <div class="flex items-center gap-3">
+            <label for="txtFichierPourquoi" class="w-28 text-sm font-medium shrink-0">Fichier pourquoi</label>
+            <input id="txtFichierPourquoi" class="text-box" placeholder="Choose file..." @bind-value="fichierPourquoiPath" @bind-value:event="oninput" readonly />
+            <button class="btn-primary" accept=".*" @onclick="@(() => OpenFileDialog("filePickerPourquoi"))"> Open </button>
+        </div>
 
-python
-f = open(output_file, "w", encoding=encoding, errors='ignore')
+        <div class="flex items-center gap-3">
+            <label for="txtNomClient" class="w-28 text-sm font-medium shrink-0">Nom client<span class="label-required">*</span></label>
+            <input id="txtNomClient" class="text-box" placeholder="Enter the client name..." @bind-value="nomClient" @bind-value:event="oninput" />
+        </div>
 
-You can then remove import codecs entirely if it's not used elsewhere.
+        <div class="flex items-center gap-3">
+            <label for="txtNomMarche" class="w-28 text-sm font-medium shrink-0">Nom marché<span class="label-required">*</span></label>
+            <input id="txtNomMarche" class="text-box" placeholder="Enter the market name..." @bind-value="nomMarche" @bind-value:event="oninput" />
+        </div>
 
-3. Parameterized SQL instead of string interpolation
+        <div class="flex items-center gap-3">
+            <label class="w-28 text-sm font-medium shrink-0">Extrap<span class="label-required">*</span></label>
+            <InputRadioGroup @bind-Value="extrap" class="flex gap-4">
+                <div class="flex items-center gap-2">
+                    <InputRadio class="form-check-input" Value="@("False")" /><span>False</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <InputRadio class="form-check-input" Value="@("True")" /><span>True</span>
+                </div>
+            </InputRadioGroup>
+        </div>
 
-Before:
+    </div>
 
-python
-sql = "SELECT lastEntryID FROM psGenSurvey WHERE survey='%s' AND surveyVersion = %s" % (survey, surveyversion)
-cursor.execute(sql)
+    <!-- Hidden file pickers -->
+    <InputFile id="filePickerPro" style="display:none" OnChange="e => OnFileSelected(e, 1)" />
+    <InputFile id="filePickerComment" style="display:none" OnChange="e => OnFileSelected(e, 2)" />
+    <InputFile id="filePickerQui" style="display:none" OnChange="e => OnFileSelected(e, 3)" />
+    <InputFile id="filePickerQuand" style="display:none" OnChange="e => OnFileSelected(e, 4)" />
+    <InputFile id="filePickerPourquoi" style="display:none" OnChange="e => OnFileSelected(e, 5)" />
 
-After:
+    <!-- Process Execution Details -->
+    <div id="processSection" class="mt-4 flex flex-nowrap items-center gap-4 border p-4 rounded shadow space-y-4 mb-4">
+        <span class="hidden lg:inline whitespace-nowrap shrink-0">Process Execution Details</span>
 
-python
-sql = "SELECT lastEntryID FROM psGenSurvey WHERE survey=? AND surveyVersion = ?"
-cursor.execute(sql, (survey, surveyversion))
+        <div class="flex gap-2 justify-between lg:justify-start lg:gap-2 w-full lg:w-auto">
+            <button @onclick="LaunchProcess"
+                    class="btn-primary btn-launch text-sm px-3 py-2 flex items-center justify-start gap-2 lg:w-auto"
+                    disabled="@(!canExecuteProcess)"
+                    title="@(canExecuteProcess ? "Launch process" : "You are not authorized")">
+                <i class="fas fa-rocket"></i>
+                <span>Launch</span>
+                <span class="hidden lg:inline">SiceronKFFFormatter</span>
+            </button>
 
-Same fix applies to getCount:
+            <button @onclick="ResetThisForm" class="btn-primary btn-reset text-sm px-3 py-2">
+                <i class="fas fa-redo"></i>
+                <span>Reset</span>
+            </button>
+        </div>
+    </div>
 
-Before:
+</div>
 
-python
-sql = "SELECT count(*) FROM psData WHERE survey in (%s)" % (
-    ",".join(map(lambda s: "'%s'" % s, surveylist))
-)
-cursor.execute(sql)
+@code {
+    private readonly string informationUrl = "https://ktglbuc.sharepoint.com/:w:/s/DataInputPrrojects/Ec7miSFeOsNHrSK5_6vGVa8B_RJKusBTIlxuJKXUcO9V-Q?e=4hQ9SQ";
 
-After:
+    private readonly string ShareDirectory = Path.Combine(Constants.ROOT_ADHOC_PATH, @"Siceron\temp");
 
-python
-placeholders = ",".join("?" for _ in surveylist)
-sql = f"SELECT count(*) FROM psData WHERE survey in ({placeholders})"
-cursor.execute(sql, surveylist)
+    private string fichierProPath = string.Empty;
+    private string fichierCommentPath = string.Empty;
+    private string fichierQuiPath = string.Empty;
+    private string fichierQuandPath = string.Empty;
+    private string fichierPourquoiPath = string.Empty;
 
-And getpsDataVersionCount:
+    private string nomClient = string.Empty;
+    private string nomMarche = string.Empty;
+    private string extrap = "False";
 
-Before:
+    private bool canExecuteProcess = true; // wire up to your permission logic
 
-python
-sql = "SELECT survey,surveyVersion,count(*) FROM psData WHERE survey in ('%s') GROUP BY survey,surveyVersion ORDER BY survey,surveyVersion" % (surveys)
-cursor.execute(sql)
+    private async Task OpenFileDialog(string pickerId)
+    {
+        await JS.InvokeVoidAsync("fileHelpers.openFilePickerById", pickerId);
+    }
 
-After:
+    private void OnFileSelected(InputFileChangeEventArgs e, int index)
+    {
+        var file = e.File;
+        if (file == null)
+            return;
 
-python
-placeholders = ",".join("?" for _ in surveys)
-sql = f"SELECT survey,surveyVersion,count(*) FROM psData WHERE survey in ({placeholders}) GROUP BY survey,surveyVersion ORDER BY survey,surveyVersion"
-cursor.execute(sql, surveys)
+        var normalizedPath = Path.Combine(ShareDirectory, file.Name)
+            .Replace('\\', Path.DirectorySeparatorChar)
+            .Replace('/', Path.DirectorySeparatorChar);
 
-And the big Export() query:
+        switch (index)
+        {
+            case 1: fichierProPath = normalizedPath; break;
+            case 2: fichierCommentPath = normalizedPath; break;
+            case 3: fichierQuiPath = normalizedPath; break;
+            case 4: fichierQuandPath = normalizedPath; break;
+            case 5: fichierPourquoiPath = normalizedPath; break;
+        }
+    }
 
-Before:
+    private void LaunchProcess()
+    {
+        // Build parameter list and enqueue, matching your existing RequiredParameters pattern
+    }
 
-python
-sql = "SELECT %s FROM psData WHERE survey='%s' AND surveylevel>0 AND entryType!='incomplete' AND surveyVersion=%d  %s ORDER BY endtime,surveyLevel,level2pos" % (
-    ",".join(columns), survey, surveyversion, lastid_cond
-)
-cursor.execute(sql)
-
-After:
-
-python
-sql = "SELECT {} FROM psData WHERE survey=? AND surveylevel>0 AND entryType!='incomplete' AND surveyVersion=? {} ORDER BY endtime,surveyLevel,level2pos".format(
-    ",".join(columns), lastid_cond
-)
-params = [survey, surveyversion]
-if surveyversion in surveyslastid:
-    params.append(lastid)
-cursor.execute(sql, params)
-
-(Note: lastid_cond still needs its %s/? swapped consistently — since it's built separately as " AND %s > %d" % (lastid_col_name, lastid), either keep the lastid value inline as it's an int derived from your own DB read, not user input, or parameterize it too the same way.)
-
-4. Batch file writes instead of per-row writes
-
-Before:
-
-python
-for row in cursor:
-    ...
-    f.write("%s\n" % (";".join(rowout)))
-    nnecrit += 1
-
-After:
-
-python
-BATCH_SIZE = 1000
-write_buffer = []
-
-for row in cursor:
-    ...
-    write_buffer.append(";".join(rowout))
-    nnecrit += 1
-    if len(write_buffer) >= BATCH_SIZE:
-        f.write("\n".join(write_buffer) + "\n")
-        write_buffer = []
-
-if write_buffer:
-    f.write("\n".join(write_buffer) + "\n")
-
-5. f-strings instead of % formatting (readability + minor speed)
-
-Before:
-
-python
-return conn, "%s@%s:%s" % (dbuser, dbserver, dbname)
-
-After:
-
-python
-return conn, f"{dbuser}@{dbserver}:{dbname}"
-
-Apply the same substitution pattern throughout log_info(...) calls wherever you see "%s" % var — purely cosmetic/perf, low risk, do it opportunistically rather than all at once.
+    private void ResetThisForm()
+    {
+        fichierProPath = fichierCommentPath = fichierQuiPath = fichierQuandPath = fichierPourquoiPath = string.Empty;
+        nomClient = nomMarche = string.Empty;
+        extrap = "False";
+    }
+}
