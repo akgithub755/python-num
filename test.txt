@@ -1,0 +1,150 @@
+    private List<string> options = new List<string>();
+    private StringBuilder comments = new StringBuilder();
+
+    private readonly string[] RequiredParameters =
+    [
+        "-fichier_pro",
+        "-nom_client",
+        "-nom_marche",
+        "-extrap"
+    ];
+
+    private readonly string[] OptionalParameters =
+    [
+        "-fichier_comment",
+        "-fichier_qui",
+        "-fichier_quand",
+        "-fichier_pourquoi"
+    ];
+
+    /// <summary>
+    /// Handling loaded files as params along with output directory and comments.
+    /// </summary>
+    private void HandleLoadedFiles()
+    {
+        options.Clear();
+        programInfo.OndemandProgram!.Options = null!;
+        programInfo.OndemandProgram.Comments = string.Empty;
+        comments.Clear();
+        programInfo.UserComments = string.Empty;
+
+#if DEBUG
+        options.Insert(0, "-O");
+#endif
+
+        options.Add(Constants.ROOT_ADHOC_PATH + @"\Siceron\pgm\SiceronKFFFormatter.py");
+
+        options.Add("-fichier_pro"); //required input file
+        options.Add(fichierProPath);
+
+        options.Add("-nom_client"); //client name
+        options.Add(nomClient);
+
+        options.Add("-nom_marche"); //market name
+        options.Add(nomMarche);
+
+        options.Add("-extrap"); //extrapolation flag
+        options.Add(extrap);
+
+        // OPTIONAL parameter: comment file
+        if (!string.IsNullOrWhiteSpace(fichierCommentPath))
+        {
+            options.Add("-fichier_comment");
+            options.Add(fichierCommentPath);
+        }
+
+        // OPTIONAL parameter: qui file
+        if (!string.IsNullOrWhiteSpace(fichierQuiPath))
+        {
+            options.Add("-fichier_qui");
+            options.Add(fichierQuiPath);
+        }
+
+        // OPTIONAL parameter: quand file
+        if (!string.IsNullOrWhiteSpace(fichierQuandPath))
+        {
+            options.Add("-fichier_quand");
+            options.Add(fichierQuandPath);
+        }
+
+        // OPTIONAL parameter: pourquoi file
+        if (!string.IsNullOrWhiteSpace(fichierPourquoiPath))
+        {
+            options.Add("-fichier_pourquoi");
+            options.Add(fichierPourquoiPath);
+        }
+
+        options = programInfo.OndemandProgram!.FormatParameters(options);
+        programInfo.OndemandProgram.Options = options;
+        programInfo.OndemandProgram.requiredParameters = RequiredParameters;
+        programInfo.OndemandProgram.optionalParameters = OptionalParameters;
+
+        comments.Append($"{programInfo.OndemandProgram.Programname}" +
+                         $"\n\tfichierProPath : {fichierProPath}" +
+                         $"\n\tnomClient : {nomClient}" +
+                         $"\n\tnomMarche : {nomMarche}" +
+                         $"\n\textrap : {extrap}" +
+                         $"\n\tfichierCommentPath : {fichierCommentPath}" +
+                         $"\n\tfichierQuiPath : {fichierQuiPath}" +
+                         $"\n\tfichierQuandPath : {fichierQuandPath}" +
+                         $"\n\tfichierPourquoiPath : {fichierPourquoiPath}"
+        );
+
+        programInfo.OndemandProgram.Comments = comments.ToString().Trim();
+        programInfo.UserComments = programInfo.OndemandProgram.Comments;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await Task.CompletedTask;
+        Console.Write(programInfo.OndemandProgram!.Programname);
+    }
+
+    protected override void OnInitialized()
+    {
+        programInfo.OnResetRequested += ResetForm;
+    }
+
+    public void Dispose()
+    {
+        programInfo.OnResetRequested -= ResetForm;
+    }
+
+    private bool isResetting = false;
+    public void ResetForm()
+    {
+        isResetting = true;
+
+        fichierProPath = string.Empty;
+        fichierCommentPath = string.Empty;
+        fichierQuiPath = string.Empty;
+        fichierQuandPath = string.Empty;
+        fichierPourquoiPath = string.Empty;
+
+        nomClient = string.Empty;
+        nomMarche = string.Empty;
+        extrap = "False";
+
+        options.Clear();
+        comments.Clear();
+
+        if (programInfo.OndemandProgram is not null)
+        {
+            programInfo.OndemandProgram.Options = [];
+            programInfo.OndemandProgram.Comments = string.Empty;
+        }
+
+        programInfo.UserComments = string.Empty;
+
+        isResetting = false;
+
+        StateHasChanged();
+    }
+
+    private void LaunchProcess()
+    {
+        HandleLoadedFiles();
+        // enqueue programInfo.OndemandProgram to ProcessQueueLib here,
+        // matching your existing launch pattern in TauxPartage/CalculRW
+    }
+}
