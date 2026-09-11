@@ -1,150 +1,61 @@
-    private List<string> options = new List<string>();
-    private StringBuilder comments = new StringBuilder();
+private void HandleLoadedFiles()
+{
+    var allPaths = new[] { fichierProPath, fichierCommentPath, fichierQuiPath, fichierQuandPath, fichierPourquoiPath };
 
-    private readonly string[] RequiredParameters =
-    [
-        "-fichier_pro",
-        "-nom_client",
-        "-nom_marche",
-        "-extrap"
-    ];
-
-    private readonly string[] OptionalParameters =
-    [
-        "-fichier_comment",
-        "-fichier_qui",
-        "-fichier_quand",
-        "-fichier_pourquoi"
-    ];
-
-    /// <summary>
-    /// Handling loaded files as params along with output directory and comments.
-    /// </summary>
-    private void HandleLoadedFiles()
+    if (allPaths.Any(t => !string.IsNullOrWhiteSpace(t) &&
+        (t.StartsWith(@"C:\", StringComparison.OrdinalIgnoreCase) ||
+         t.StartsWith(@"D:\", StringComparison.OrdinalIgnoreCase))))
     {
-        options.Clear();
-        programInfo.OndemandProgram!.Options = null!;
-        programInfo.OndemandProgram.Comments = string.Empty;
-        comments.Clear();
-        programInfo.UserComments = string.Empty;
-
-#if DEBUG
-        options.Insert(0, "-O");
-#endif
-
-        options.Add(Constants.ROOT_ADHOC_PATH + @"\Siceron\pgm\SiceronKFFFormatter.py");
-
-        options.Add("-fichier_pro"); //required input file
-        options.Add(fichierProPath);
-
-        options.Add("-nom_client"); //client name
-        options.Add(nomClient);
-
-        options.Add("-nom_marche"); //market name
-        options.Add(nomMarche);
-
-        options.Add("-extrap"); //extrapolation flag
-        options.Add(extrap);
-
-        // OPTIONAL parameter: comment file
-        if (!string.IsNullOrWhiteSpace(fichierCommentPath))
-        {
-            options.Add("-fichier_comment");
-            options.Add(fichierCommentPath);
-        }
-
-        // OPTIONAL parameter: qui file
-        if (!string.IsNullOrWhiteSpace(fichierQuiPath))
-        {
-            options.Add("-fichier_qui");
-            options.Add(fichierQuiPath);
-        }
-
-        // OPTIONAL parameter: quand file
-        if (!string.IsNullOrWhiteSpace(fichierQuandPath))
-        {
-            options.Add("-fichier_quand");
-            options.Add(fichierQuandPath);
-        }
-
-        // OPTIONAL parameter: pourquoi file
-        if (!string.IsNullOrWhiteSpace(fichierPourquoiPath))
-        {
-            options.Add("-fichier_pourquoi");
-            options.Add(fichierPourquoiPath);
-        }
-
-        options = programInfo.OndemandProgram!.FormatParameters(options);
-        programInfo.OndemandProgram.Options = options;
-        programInfo.OndemandProgram.requiredParameters = RequiredParameters;
-        programInfo.OndemandProgram.optionalParameters = OptionalParameters;
-
-        comments.Append($"{programInfo.OndemandProgram.Programname}" +
-                         $"\n\tfichierProPath : {fichierProPath}" +
-                         $"\n\tnomClient : {nomClient}" +
-                         $"\n\tnomMarche : {nomMarche}" +
-                         $"\n\textrap : {extrap}" +
-                         $"\n\tfichierCommentPath : {fichierCommentPath}" +
-                         $"\n\tfichierQuiPath : {fichierQuiPath}" +
-                         $"\n\tfichierQuandPath : {fichierQuandPath}" +
-                         $"\n\tfichierPourquoiPath : {fichierPourquoiPath}"
-        );
-
-        programInfo.OndemandProgram.Comments = comments.ToString().Trim();
-        programInfo.UserComments = programInfo.OndemandProgram.Comments;
+        CopyFiles();
     }
 
-    protected override async Task OnParametersSetAsync()
+    options.Clear();
+    programInfo.OndemandProgram!.Options = null!;
+    // ... rest of your existing HandleLoadedFiles code
+}
+
+
+private void CopyFiles()
+{
+    if (!Directory.Exists(ShareDirectory))
+        Directory.CreateDirectory(ShareDirectory);
+
+    string subFolder = Path.Combine(ShareDirectory,
+        Environment.UserName + "_" + DateTime.Now.ToString("yyyyMMddHHmmss"));
+    Directory.CreateDirectory(subFolder);
+
+    if (!string.IsNullOrWhiteSpace(fichierProPath) && File.Exists(fichierProPath))
     {
-        await Task.CompletedTask;
-        Console.Write(programInfo.OndemandProgram!.Programname);
+        var dest = Path.Combine(subFolder, Path.GetFileName(fichierProPath));
+        File.Copy(fichierProPath, dest, true);
+        fichierProPath = dest;
     }
 
-    protected override void OnInitialized()
+    if (!string.IsNullOrWhiteSpace(fichierCommentPath) && File.Exists(fichierCommentPath))
     {
-        programInfo.OnResetRequested += ResetForm;
+        var dest = Path.Combine(subFolder, Path.GetFileName(fichierCommentPath));
+        File.Copy(fichierCommentPath, dest, true);
+        fichierCommentPath = dest;
     }
 
-    public void Dispose()
+    if (!string.IsNullOrWhiteSpace(fichierQuiPath) && File.Exists(fichierQuiPath))
     {
-        programInfo.OnResetRequested -= ResetForm;
+        var dest = Path.Combine(subFolder, Path.GetFileName(fichierQuiPath));
+        File.Copy(fichierQuiPath, dest, true);
+        fichierQuiPath = dest;
     }
 
-    private bool isResetting = false;
-    public void ResetForm()
+    if (!string.IsNullOrWhiteSpace(fichierQuandPath) && File.Exists(fichierQuandPath))
     {
-        isResetting = true;
-
-        fichierProPath = string.Empty;
-        fichierCommentPath = string.Empty;
-        fichierQuiPath = string.Empty;
-        fichierQuandPath = string.Empty;
-        fichierPourquoiPath = string.Empty;
-
-        nomClient = string.Empty;
-        nomMarche = string.Empty;
-        extrap = "False";
-
-        options.Clear();
-        comments.Clear();
-
-        if (programInfo.OndemandProgram is not null)
-        {
-            programInfo.OndemandProgram.Options = [];
-            programInfo.OndemandProgram.Comments = string.Empty;
-        }
-
-        programInfo.UserComments = string.Empty;
-
-        isResetting = false;
-
-        StateHasChanged();
+        var dest = Path.Combine(subFolder, Path.GetFileName(fichierQuandPath));
+        File.Copy(fichierQuandPath, dest, true);
+        fichierQuandPath = dest;
     }
 
-    private void LaunchProcess()
+    if (!string.IsNullOrWhiteSpace(fichierPourquoiPath) && File.Exists(fichierPourquoiPath))
     {
-        HandleLoadedFiles();
-        // enqueue programInfo.OndemandProgram to ProcessQueueLib here,
-        // matching your existing launch pattern in TauxPartage/CalculRW
+        var dest = Path.Combine(subFolder, Path.GetFileName(fichierPourquoiPath));
+        File.Copy(fichierPourquoiPath, dest, true);
+        fichierPourquoiPath = dest;
     }
 }
