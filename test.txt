@@ -11,51 +11,42 @@ private void HandleLoadedFiles()
 
     options.Clear();
     programInfo.OndemandProgram!.Options = null!;
-    // ... rest of your existing HandleLoadedFiles code
-}
+    programInfo.OndemandProgram.Comments = string.Empty;
+    comments.Clear();
+    programInfo.UserComments = string.Empty;
 
+#if DEBUG
+    options.Insert(0, "-O");
+#endif
 
-private void CopyFiles()
-{
-    if (!Directory.Exists(ShareDirectory))
-        Directory.CreateDirectory(ShareDirectory);
+    options.Add(Constants.ROOT_ADHOC_PATH + @"\Siceron\pgm\SiceronKFFFormatter.py");
 
-    string subFolder = Path.Combine(ShareDirectory,
-        Environment.UserName + "_" + DateTime.Now.ToString("yyyyMMddHHmmss"));
-    Directory.CreateDirectory(subFolder);
+    if (!string.IsNullOrEmpty(fichierProPath)) { options.Add("pro=" + fichierProPath); } else { options.Add(fichierProPath); }
+    if (!string.IsNullOrEmpty(fichierCommentPath)) { options.Add("cmt=" + fichierCommentPath); } else { options.Add(fichierCommentPath); }
+    if (!string.IsNullOrEmpty(fichierQuiPath)) { options.Add("qui=" + fichierQuiPath); } else { options.Add(fichierQuiPath); }
+    if (!string.IsNullOrEmpty(fichierQuandPath)) { options.Add("qnd=" + fichierQuandPath); } else { options.Add(fichierQuandPath); }
+    if (!string.IsNullOrEmpty(fichierPourquoiPath)) { options.Add("prq=" + fichierPourquoiPath); } else { options.Add(fichierPourquoiPath); }
+    if (!string.IsNullOrEmpty(nomClient)) { options.Add("cli=" + nomClient); } else { options.Add(nomClient); }
+    if (!string.IsNullOrEmpty(nomMarche)) { options.Add("mrkt=" + nomMarche); } else { options.Add(nomMarche); }
 
-    if (!string.IsNullOrWhiteSpace(fichierProPath) && File.Exists(fichierProPath))
-    {
-        var dest = Path.Combine(subFolder, Path.GetFileName(fichierProPath));
-        File.Copy(fichierProPath, dest, true);
-        fichierProPath = dest;
-    }
+    options.Add("extrap=" + extrap);
 
-    if (!string.IsNullOrWhiteSpace(fichierCommentPath) && File.Exists(fichierCommentPath))
-    {
-        var dest = Path.Combine(subFolder, Path.GetFileName(fichierCommentPath));
-        File.Copy(fichierCommentPath, dest, true);
-        fichierCommentPath = dest;
-    }
+    options = programInfo.OndemandProgram!.FormatParameters(options);
+    programInfo.OndemandProgram.Options = options;
+    programInfo.OndemandProgram.requiredParameters = RequiredParameters;
+    programInfo.OndemandProgram.optionalParameters = OptionalParameters;
 
-    if (!string.IsNullOrWhiteSpace(fichierQuiPath) && File.Exists(fichierQuiPath))
-    {
-        var dest = Path.Combine(subFolder, Path.GetFileName(fichierQuiPath));
-        File.Copy(fichierQuiPath, dest, true);
-        fichierQuiPath = dest;
-    }
+    comments.Append($"{programInfo.OndemandProgram.Programname}" +
+                     $"\n\tfichierProPath : {fichierProPath}" +
+                     $"\n\tnomClient : {nomClient}" +
+                     $"\n\tnomMarche : {nomMarche}" +
+                     $"\n\textrap : {extrap}" +
+                     $"\n\tfichierCommentPath : {fichierCommentPath}" +
+                     $"\n\tfichierQuiPath : {fichierQuiPath}" +
+                     $"\n\tfichierQuandPath : {fichierQuandPath}" +
+                     $"\n\tfichierPourquoiPath : {fichierPourquoiPath}"
+    );
 
-    if (!string.IsNullOrWhiteSpace(fichierQuandPath) && File.Exists(fichierQuandPath))
-    {
-        var dest = Path.Combine(subFolder, Path.GetFileName(fichierQuandPath));
-        File.Copy(fichierQuandPath, dest, true);
-        fichierQuandPath = dest;
-    }
-
-    if (!string.IsNullOrWhiteSpace(fichierPourquoiPath) && File.Exists(fichierPourquoiPath))
-    {
-        var dest = Path.Combine(subFolder, Path.GetFileName(fichierPourquoiPath));
-        File.Copy(fichierPourquoiPath, dest, true);
-        fichierPourquoiPath = dest;
-    }
+    programInfo.OndemandProgram.Comments = comments.ToString().Trim();
+    programInfo.UserComments = programInfo.OndemandProgram.Comments;
 }
