@@ -1,52 +1,159 @@
-private void HandleLoadedFiles()
-{
-    var allPaths = new[] { fichierProPath, fichierCommentPath, fichierQuiPath, fichierQuandPath, fichierPourquoiPath };
+@page "/roles"
+@using OnDemandLaunchApp.Models
+@using OnDemandLaunchApp.Services
+@inject ToastService Toasts
+@namespace OnDemandLaunchApp.Pages.TableManagement
 
-    if (allPaths.Any(t => !string.IsNullOrWhiteSpace(t) &&
-        (t.StartsWith(@"C:\", StringComparison.OrdinalIgnoreCase) ||
-         t.StartsWith(@"D:\", StringComparison.OrdinalIgnoreCase))))
+<div class="space-y-6">
+
+    <div class="border p-4 rounded shadow flex gap-4">
+
+        <!-- Left: Tables list -->
+        <div class="w-64 border rounded shadow-sm shrink-0">
+            <div class="p-2 border-b font-medium text-sm bg-gray-50">Tables</div>
+            <ul class="divide-y text-sm">
+                @foreach (var table in tableNames)
+                {
+                    <li>
+                        <button class="w-full text-left px-3 py-2 hover:bg-gray-100 @(table == selectedTable ? "bg-teal-50 font-medium" : "")"
+                                @onclick="() => SelectTable(table)">
+                            @table
+                        </button>
+                    </li>
+                }
+            </ul>
+        </div>
+
+        <!-- Right: Data grid -->
+        <div class="flex-1 border rounded shadow-sm overflow-hidden flex flex-col">
+            <div class="overflow-x-auto flex-1">
+                <table class="w-full text-sm border-collapse">
+                    <thead>
+                        <tr class="bg-gray-50 border-b">
+                            @foreach (var column in columns)
+                            {
+                                <th class="text-left px-3 py-2 font-medium border-r last:border-r-0">@column</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in rows)
+                        {
+                            <tr class="border-b hover:bg-gray-50 @(row == selectedRow ? "bg-blue-100" : "")"
+                                @onclick="() => SelectRow(row)">
+                                @foreach (var column in columns)
+                                {
+                                    <td class="px-3 py-2 border-r last:border-r-0">@row[column]</td>
+                                }
+                            </tr>
+                        }
+                        <tr class="border-b bg-blue-50">
+                            @for (int i = 0; i < columns.Count; i++)
+                            {
+                                <td class="px-3 py-2 border-r last:border-r-0 text-gray-400">
+                                    @(i == 0 ? "-1" : "")
+                                </td>
+                            }
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Action buttons -->
+            <div class="flex gap-2 justify-start p-3 border-t bg-gray-50">
+                <button class="btn-primary text-sm px-3 py-2" @onclick="ExportTable">Export</button>
+                <button class="btn-primary text-sm px-3 py-2" @onclick="ImportTable">Import</button>
+                <button class="btn-primary text-sm px-3 py-2" @onclick="RefreshTable">Refresh</button>
+                <button class="btn-primary text-sm px-3 py-2" @onclick="SaveTable">Save</button>
+                <button class="btn-primary text-sm px-3 py-2" @onclick="DeleteRow">Delete</button>
+            </div>
+        </div>
+
+    </div>
+
+</div>
+
+@code {
+    private List<string> tableNames = new()
     {
-        CopyFiles();
+        "corresp_qr_libelle_client",
+        "dicoview_questions",
+        "dicoview_reponses",
+        "input_codes_to_download",
+        "purchaseattribute",
+        "recapcontourmapping",
+        "retailer_attributes",
+        "retailer_attributes_services",
+        "roles",
+        "scenariospecpat",
+        "schedulerprogram",
+        "viewkey_toqr_map",
+        "volegrulesdefault",
+        "volegrulesfixedloose",
+        "volegrulesformula"
+    };
+
+    private string selectedTable = "roles";
+    private List<string> columns = new() { "idrole", "label", "description" };
+    private List<Dictionary<string, string>> rows = new();
+    private Dictionary<string, string>? selectedRow;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTableData(selectedTable);
     }
 
-    options.Clear();
-    programInfo.OndemandProgram!.Options = null!;
-    programInfo.OndemandProgram.Comments = string.Empty;
-    comments.Clear();
-    programInfo.UserComments = string.Empty;
+    private async Task SelectTable(string table)
+    {
+        selectedTable = table;
+        selectedRow = null;
+        await LoadTableData(table);
+    }
 
-#if DEBUG
-    options.Insert(0, "-O");
-#endif
+    private void SelectRow(Dictionary<string, string> row)
+    {
+        selectedRow = row;
+    }
 
-    options.Add(Constants.ROOT_ADHOC_PATH + @"\Siceron\pgm\SiceronKFFFormatter.py");
+    private async Task LoadTableData(string table)
+    {
+        // TODO: replace with actual DB call, e.g. await tableService.GetTableAsync(table)
+        rows = new List<Dictionary<string, string>>();
+        await Task.CompletedTask;
+    }
 
-    if (!string.IsNullOrEmpty(fichierProPath)) { options.Add("pro=" + fichierProPath); } else { options.Add(fichierProPath); }
-    if (!string.IsNullOrEmpty(fichierCommentPath)) { options.Add("cmt=" + fichierCommentPath); } else { options.Add(fichierCommentPath); }
-    if (!string.IsNullOrEmpty(fichierQuiPath)) { options.Add("qui=" + fichierQuiPath); } else { options.Add(fichierQuiPath); }
-    if (!string.IsNullOrEmpty(fichierQuandPath)) { options.Add("qnd=" + fichierQuandPath); } else { options.Add(fichierQuandPath); }
-    if (!string.IsNullOrEmpty(fichierPourquoiPath)) { options.Add("prq=" + fichierPourquoiPath); } else { options.Add(fichierPourquoiPath); }
-    if (!string.IsNullOrEmpty(nomClient)) { options.Add("cli=" + nomClient); } else { options.Add(nomClient); }
-    if (!string.IsNullOrEmpty(nomMarche)) { options.Add("mrkt=" + nomMarche); } else { options.Add(nomMarche); }
+    private async Task ExportTable()
+    {
+        // TODO: export logic
+        await Task.CompletedTask;
+    }
 
-    options.Add("extrap=" + extrap);
+    private async Task ImportTable()
+    {
+        // TODO: import logic
+        await Task.CompletedTask;
+    }
 
-    options = programInfo.OndemandProgram!.FormatParameters(options);
-    programInfo.OndemandProgram.Options = options;
-    programInfo.OndemandProgram.requiredParameters = RequiredParameters;
-    programInfo.OndemandProgram.optionalParameters = OptionalParameters;
+    private async Task RefreshTable()
+    {
+        await LoadTableData(selectedTable);
+    }
 
-    comments.Append($"{programInfo.OndemandProgram.Programname}" +
-                     $"\n\tfichierProPath : {fichierProPath}" +
-                     $"\n\tnomClient : {nomClient}" +
-                     $"\n\tnomMarche : {nomMarche}" +
-                     $"\n\textrap : {extrap}" +
-                     $"\n\tfichierCommentPath : {fichierCommentPath}" +
-                     $"\n\tfichierQuiPath : {fichierQuiPath}" +
-                     $"\n\tfichierQuandPath : {fichierQuandPath}" +
-                     $"\n\tfichierPourquoiPath : {fichierPourquoiPath}"
-    );
+    private async Task SaveTable()
+    {
+        // TODO: save logic
+        Toasts.Success("Table saved");
+        await Task.CompletedTask;
+    }
 
-    programInfo.OndemandProgram.Comments = comments.ToString().Trim();
-    programInfo.UserComments = programInfo.OndemandProgram.Comments;
+    private async Task DeleteRow()
+    {
+        if (selectedRow is null)
+        {
+            Toasts.Error("Select a row to delete");
+            return;
+        }
+        // TODO: delete logic
+        await Task.CompletedTask;
+    }
 }
