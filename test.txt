@@ -1,30 +1,21 @@
-::deep .program-tree-toggle,
-::deep .tree-toggle-icon {
-    /* Hide the raw ▼ / ▶ text character */
-    font-size: 0;
-    color: transparent;
-    position: relative;
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-}
+import win32com.client as win32
 
-::deep .program-tree-toggle::before,
-::deep .tree-toggle-icon::before {
-    content: "";
-    position: absolute;
-    left: 2px;
-    top: 3px;
-    width: 0;
-    height: 0;
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-    border-top: 6px solid #64748b;
-    transition: transform 0.15s ease;
-}
+def send_email():
+    outlook = win32.Dispatch("Outlook.Application")
+    mail = outlook.CreateItem(0)  # 0 = olMailItem
 
-/* Collapsed state: point right instead of down */
-::deep .program-tree-toggle.collapsed::before,
-::deep .tree-toggle-icon.collapsed::before {
-    transform: rotate(-90deg);
-}
+    mail.To = "friend1@example.com; friend2@example.com; friend3@example.com"
+    # mail.CC = "someone@example.com"
+    # mail.BCC = "hidden@example.com"
+
+    mail.Subject = "Your Subject Here"
+    mail.Body = "Hello,\n\nThis is the email body.\n\nRegards,\nYour Name"
+
+    # To send immediately:
+    mail.Send()
+
+    # To just open a draft instead of sending automatically, use:
+    # mail.Display()
+
+if __name__ == "__main__":
+    send_email()
