@@ -1,21 +1,42 @@
-import win32com.client as win32
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
+# --- SMTP Configuration ---
+SMTP_HOST = "smtp.yourprovider.com"   # from your provider
+SMTP_PORT = 587                        # commonly 587 (TLS) or 465 (SSL)
+SMTP_USERNAME = "your_smtp_username"   # from your provider
+SMTP_API_KEY = "your_api_key"          # used as the password
+
+SENDER_EMAIL = "your_verified_sender@example.com"
+RECIPIENTS = [
+    "friend1@example.com",
+    "friend2@example.com",
+    "friend3@example.com"
+]
+
+SUBJECT = "Your Subject Here"
+BODY = "Hello,\n\nThis is the email body.\n\nRegards,\nYour Name"
+
 
 def send_email():
-    outlook = win32.Dispatch("Outlook.Application")
-    mail = outlook.CreateItem(0)  # 0 = olMailItem
+    msg = MIMEMultipart()
+    msg["From"] = SENDER_EMAIL
+    msg["To"] = ", ".join(RECIPIENTS)
+    msg["Subject"] = SUBJECT
+    msg.attach(MIMEText(BODY, "plain"))
 
-    mail.To = "friend1@example.com; friend2@example.com; friend3@example.com"
-    # mail.CC = "someone@example.com"
-    # mail.BCC = "hidden@example.com"
+    try:
+        # Use SMTP_SSL if your provider requires port 465 instead of 587
+        server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
+        server.starttls()  # upgrade connection to TLS
+        server.login(SMTP_USERNAME, SMTP_API_KEY)
+        server.sendmail(SENDER_EMAIL, RECIPIENTS, msg.as_string())
+        server.quit()
+        print("Email sent successfully!")
+    except Exception as e:
+        print(f"Failed to send email: {e}")
 
-    mail.Subject = "Your Subject Here"
-    mail.Body = "Hello,\n\nThis is the email body.\n\nRegards,\nYour Name"
-
-    # To send immediately:
-    mail.Send()
-
-    # To just open a draft instead of sending automatically, use:
-    # mail.Display()
 
 if __name__ == "__main__":
     send_email()
