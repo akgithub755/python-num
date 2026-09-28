@@ -1,42 +1,76 @@
+import json
+import logging
+import os
+import re
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-# --- SMTP Configuration ---
-SMTP_HOST = "smtp.yourprovider.com"   # from your provider
-SMTP_PORT = 587                        # commonly 587 (TLS) or 465 (SSL)
-SMTP_USERNAME = "your_smtp_username"   # from your provider
-SMTP_API_KEY = "your_api_key"          # used as the password
+import azure.functions as func
 
-SENDER_EMAIL = "your_verified_sender@example.com"
-RECIPIENTS = [
-    "friend1@example.com",
-    "friend2@example.com",
-    "friend3@example.com"
-]
+app = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)
 
-SUBJECT = "Your Subject Here"
-BODY = "Hello,\n\nThis is the email body.\n\nRegards,\nYour Name"
+EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
-def send_email():
+def _json(payload: dict, status: int) -> func.HttpResponse:
+    return func.HttpResponse(json.dumps(payload), status_code=status, mimetype="application/json")
+
+
+def _send_mail(to_email: str, subject: str, body: str) -> None:
+    # Read settings at call time so a missing setting gives a clear error
+    host = os.environ["SMTP_HOST"]
+    port = int(os.environ.get("SMTP_PORT", "587"))
+    username = os.environ["SMTP_USERNAME"]
+    api_key = os.environ["SMTP_API_KEY"]
+    sender = os.environ["SENDER_EMAIL"]
+
     msg = MIMEMultipart()
-    msg["From"] = SENDER_EMAIL
-    msg["To"] = ", ".join(RECIPIENTS)
-    msg["Subject"] = SUBJECT
-    msg.attach(MIMEText(BODY, "plain"))
+    msg["From"] = sender
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
+
+    if port == 465:
+        server = smtplib.SMTP_SSL(host, port, timeout=30)
+    else:
+        server = smtplib.SMTP(host, port, timeout=30)
+        server.starttls()
+
+    with server:
+        server.login(username, api_key)
+        server.sendmail(sender, [to_email], msg.as_string())
+
+
+@app.route(route="send-access-email", methods=["POST"])
+def send_access_email(req: func.HttpRequest) -> func.HttpResponse:
+    try:
+        data = req.get_json()
+    except ValueError:
+        return _json({"error": "Invalid JSON body"}, 400)
+
+    email = (data.get("email") or "").strip()
+    name = (data.get("name") or "User").strip()
+    user_id = data.get("userId", "")
+
+    if not email or not EMAIL_REGEX.match(email):
+        return _json({"error": "A valid 'email' is required"}, 400)
+
+    subject = "Access Request Received"
+    body = (
+        f"Hi {name},\n\n"
+        f"Your access request (User ID: {user_id}) has been received "
+        f"and is being processed.\n\n"
+        f"Regards,\nTeam"
+    )
 
     try:
-        # Use SMTP_SSL if your provider requires port 465 instead of 587
-        server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
-        server.starttls()  # upgrade connection to TLS
-        server.login(SMTP_USERNAME, SMTP_API_KEY)
-        server.sendmail(SENDER_EMAIL, RECIPIENTS, msg.as_string())
-        server.quit()
-        print("Email sent successfully!")
-    except Exception as e:
-        print(f"Failed to send email: {e}")
-
-
-if __name__ == "__main__":
-    send_email()
+        _send_mail(email, subject, body)
+        logging.info("Access email sent to %s", email)
+        return _json({"status": "sent"}, 200)
+    except KeyError as e:
+        logging.error("Missing app setting: %s", e)
+        return _json({"error": "Server configuration error"}, 500)
+    except Exception:
+        logging.exception("Failed to send email")
+        return _json({"error": "Failed to send email"}, 500)
