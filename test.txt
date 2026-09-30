@@ -1,89 +1,6 @@
-@page "/customers"
-@using OnDemandLaunchApp.Pages.Table_Management.Tables
-@namespace OnDemandLaunchApp.Pages.Table_Management
-
-<div class="space-y-6">
-
-    <div class="border p-4 rounded shadow flex gap-4">
-
-        <!-- Left: Tables list (constant) -->
-        <div class="w-64 border rounded shadow-sm shrink-0">
-            <div class="p-2 border-b font-medium text-sm bg-gray-50">Tables</div>
-            <ul class="divide-y text-sm">
-                @foreach (var table in tableNames)
-                {
-                    <li>
-                        <button class="w-full text-left px-3 py-2 hover:bg-gray-100 @(table == selectedTable ? "bg-teal-50 font-medium" : "")"
-                                @onclick="() => SelectTable(table)">
-                            @table
-                        </button>
-                    </li>
-                }
-            </ul>
-        </div>
-
-        <!-- Right: only this part changes -->
-        <div class="flex-1 min-w-0">
-            @if (tableComponents.TryGetValue(selectedTable, out var componentType))
-            {
-                <DynamicComponent Type="componentType" @key="selectedTable" />
-            }
-            else
-            {
-                <TableNotAvailable TableName="@selectedTable" />
-            }
-        </div>
-
-    </div>
-</div>
-
-@code {
-    private readonly List<string> tableNames = new()
-    {
-        "corresp_qr_libelle_client",
-        "dicoview_questions",
-        "dicoview_reponses",
-        "input_codes_to_download",
-        "purchaseattribute",
-        "recapcontourmapping",
-        "retailer_attributes",
-        "retailer_attributes_services",
-        "roles",
-        "scenariospecpat",
-        "schedulerprogram",
-        "viewkey_toqr_map",
-        "volegrulesdefault",
-        "volegrulesfixedloose",
-        "volegrulesformula"
-    };
-
-    // table name -> component. Add one line per new table component.
-    private static readonly Dictionary<string, Type> tableComponents = new()
-    {
-        ["purchaseattribute"] = typeof(PurchaseAttributeTable),
-        ["recapcontourmapping"] = typeof(RecapContourMappingTable),
-        // ["roles"] = typeof(RolesTable),
-    };
-
-    private string selectedTable = "purchaseattribute";
-
-    private void SelectTable(string table)
-    {
-        selectedTable = table;
-    }
-}
-
-
-
-
-
-
-
-
-
-
 @namespace OnDemandLaunchApp.Pages.Table_Management.Tables
 @using System.Net.Http.Json
+@using System.Text.Json
 @using Infrastructure.Models.Responses
 @using OnDemandLaunchApp.Services
 @inject ToastService Toasts
@@ -95,7 +12,7 @@
 
     @if (isLoading)
     {
-        <div class="p-4 text-sm">Loading purchase attributes...</div>
+        <div class="p-4 text-sm">Loading input codes to download...</div>
     }
     else if (!string.IsNullOrWhiteSpace(errorMessage))
     {
@@ -107,38 +24,44 @@
             <table class="w-full text-sm border-collapse">
                 <thead>
                     <tr class="bg-gray-50 border-b">
-                        <th class="text-left px-3 py-2 font-medium border-r">idpurchaseattribute (PK)</th>
-                        <th class="text-left px-3 py-2 font-medium">description</th>
+                        @foreach (var col in cols)
+                        {
+                            <th class="text-left px-3 py-2 font-medium border-r last:border-r-0">@col.Title</th>
+                        }
                     </tr>
                 </thead>
                 <tbody>
                     @foreach (var row in rows)
                     {
                         <tr class="border-b hover:bg-gray-50 @GetRowClass(row)" @onclick="() => selectedRow = row">
-                            <td class="px-3 py-2 border-r text-gray-500">
-                                @(newRows.Contains(row) ? "(new)" : row.Idpurchaseattribute.ToString())
-                            </td>
-                            <td class="px-3 py-2">
-                                @if (ReferenceEquals(editingRow, row))
-                                {
-                                    <input class="w-full border px-1"
-                                           @bind="row.Description"
-                                           @bind:event="oninput"
-                                           @onblur="EndEdit"
-                                           @onclick:stopPropagation="true" />
-                                }
-                                else
-                                {
-                                    <div class="h-6 cursor-text" @onclick="() => BeginEdit(row)">
-                                        @DisplayValue(row.Description)
-                                    </div>
-                                }
-                            </td>
+                            @foreach (var col in cols)
+                            {
+                                <td class="px-3 py-2 border-r last:border-r-0">
+                                    @if (col.Set is not null &&
+                                         ReferenceEquals(editingRow, row) &&
+                                         editingCol == col.Title)
+                                    {
+                                        <input class="w-full border px-1"
+                                               type="@(col.IsNumber ? "number" : "text")"
+                                               value="@col.Get(row)"
+                                               @oninput="e => Change(row, col, e.Value?.ToString())"
+                                               @onblur="EndEdit"
+                                               @onclick:stopPropagation="true" />
+                                    }
+                                    else
+                                    {
+                                        <div class="h-6 @(col.Set is not null ? "cursor-text" : "text-gray-500")"
+                                             @onclick="() => BeginEdit(row, col)">
+                                            @DisplayValue(col.Get(row))
+                                        </div>
+                                    }
+                                </td>
+                            }
                         </tr>
                     }
                     @if (rows.Count == 0)
                     {
-                        <tr><td class="px-3 py-3 text-gray-400" colspan="2">No data found.</td></tr>
+                        <tr><td class="px-3 py-3 text-gray-400" colspan="@cols.Count">No data found.</td></tr>
                     }
                 </tbody>
             </table>
@@ -155,15 +78,37 @@
 </div>
 
 @code {
-    private const string Api = "/api/Purchaseattributes";
+    private const string Api = "/api/InputCodesToDownloads";
     private const int MaxPageSize = 1000;
 
-    private List<PurchaseattributeDto> rows = new();
-    private Dictionary<long, string?> original = new();
-    private readonly HashSet<PurchaseattributeDto> newRows = new();
+    private record Col(
+        string Title,
+        Func<InputCodesToDownloadDto, string?> Get,
+        Action<InputCodesToDownloadDto, string?>? Set = null,
+        bool IsNumber = false);
 
-    private PurchaseattributeDto? selectedRow;
-    private PurchaseattributeDto? editingRow;
+    // Set == null -> read-only column
+    private readonly List<Col> cols = new()
+    {
+        new("Id", x => x.Id.ToString()),
+        new("TypeDesc", x => x.TypeDesc, (x, v) => x.TypeDesc = v ?? string.Empty),
+        new("InsertDate", x => x.InsertDate.ToString("yyyy-MM-dd HH:mm")),
+        new("Userid", x => x.Userid, (x, v) => x.Userid = v ?? string.Empty),
+        new("Commentaire", x => x.Commentaire, (x, v) => x.Commentaire = v),
+        new("Pays", x => x.Pays, (x, v) => x.Pays = v ?? string.Empty),
+        new("ProcessClassique", x => x.ProcessClassique.ToString(),
+            (x, v) => { if (int.TryParse(v, out var n)) x.ProcessClassique = n; }, true),
+        new("ProcessValidate", x => x.ProcessValidate.ToString(),
+            (x, v) => { if (int.TryParse(v, out var n)) x.ProcessValidate = n; }, true),
+    };
+
+    private List<InputCodesToDownloadDto> rows = new();
+    private Dictionary<uint, string> original = new();
+    private readonly HashSet<InputCodesToDownloadDto> newRows = new();
+
+    private InputCodesToDownloadDto? selectedRow;
+    private InputCodesToDownloadDto? editingRow;
+    private string? editingCol;
 
     private bool isLoading;
     private bool isSaving;
@@ -171,9 +116,16 @@
 
     protected override async Task OnInitializedAsync() => await Load();
 
+    // ---------- helpers ----------
+
     private static string DisplayValue(string? v) => string.IsNullOrWhiteSpace(v) ? "--" : v;
 
-    private string GetRowClass(PurchaseattributeDto row)
+    private bool IsModified(InputCodesToDownloadDto row) =>
+        !newRows.Contains(row) &&
+        original.TryGetValue(row.Id, out var json) &&
+        json != JsonSerializer.Serialize(row);
+
+    private string GetRowClass(InputCodesToDownloadDto row)
     {
         if (row == selectedRow) return "bg-blue-100";
         if (newRows.Contains(row)) return "bg-green-50";
@@ -181,18 +133,27 @@
         return string.Empty;
     }
 
-    private bool IsModified(PurchaseattributeDto row) =>
-        !newRows.Contains(row) &&
-        original.TryGetValue(row.Idpurchaseattribute, out var d) &&
-        d != row.Description;
-
-    private void BeginEdit(PurchaseattributeDto row)
+    private void BeginEdit(InputCodesToDownloadDto row, Col col)
     {
         selectedRow = row;
+
+        if (col.Set is null)
+            return;
+
         editingRow = row;
+        editingCol = col.Title;
     }
 
-    private void EndEdit() => editingRow = null;
+    private void EndEdit()
+    {
+        editingRow = null;
+        editingCol = null;
+    }
+
+    private void Change(InputCodesToDownloadDto row, Col col, string? value) =>
+        col.Set!(row, string.IsNullOrWhiteSpace(value) ? null : value);
+
+    // ---------- load / refresh ----------
 
     private async Task Load()
     {
@@ -201,17 +162,17 @@
 
         try
         {
-            rows = await Http.GetFromJsonAsync<List<PurchaseattributeDto>>(
+            rows = await Http.GetFromJsonAsync<List<InputCodesToDownloadDto>>(
                        $"{Api}?page=1&pageSize={MaxPageSize}") ?? new();
 
-            original = rows.ToDictionary(r => r.Idpurchaseattribute, r => r.Description);
+            original = rows.ToDictionary(r => r.Id, r => JsonSerializer.Serialize(r));
             newRows.Clear();
             selectedRow = null;
-            editingRow = null;
+            EndEdit();
         }
         catch (HttpRequestException ex)
         {
-            errorMessage = $"Unable to load Purchase Attribute data: {ex.Message}";
+            errorMessage = $"Unable to load Input Codes data: {ex.Message}";
         }
         catch (Exception ex)
         {
@@ -232,15 +193,19 @@
         await Load();
 
         if (errorMessage is null)
-            Toasts.Success("Purchase Attributes refreshed successfully.");
+            Toasts.Success("Input Codes refreshed successfully.");
     }
+
+    // ---------- add / save / delete ----------
 
     private void AddRow()
     {
-        var row = new PurchaseattributeDto();
+        var row = new InputCodesToDownloadDto { InsertDate = DateTime.Now };
         newRows.Add(row);
         rows.Insert(0, row);
-        BeginEdit(row);
+        selectedRow = row;
+        editingRow = row;
+        editingCol = "TypeDesc";
     }
 
     private async Task Save()
@@ -261,12 +226,12 @@
             foreach (var row in creates)
             {
                 using var r = await Http.PostAsJsonAsync(Api, row);
-                if (!await Check(r, "Unable to create purchase attribute.")) return;
+                if (!await Check(r, "Unable to create item.")) return;
             }
 
             foreach (var row in updates)
             {
-                using var r = await Http.PutAsJsonAsync($"{Api}/{row.Idpurchaseattribute}", row);
+                using var r = await Http.PutAsJsonAsync($"{Api}/{row.Id}", row);
                 if (!await Check(r, "Unable to save data.")) return;
             }
 
@@ -275,7 +240,7 @@
         }
         catch (HttpRequestException ex)
         {
-            Toasts.Error($"Unable to save Purchase Attribute: {ex.Message}");
+            Toasts.Error($"Unable to save Input Codes: {ex.Message}");
         }
         catch (Exception ex)
         {
@@ -307,7 +272,7 @@
 
         try
         {
-            using var r = await Http.DeleteAsync($"{Api}/{selectedRow.Idpurchaseattribute}");
+            using var r = await Http.DeleteAsync($"{Api}/{selectedRow.Id}");
 
             if (await Check(r, "Unable to delete data."))
             {
