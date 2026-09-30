@@ -1,0 +1,497 @@
+@page "/prism/purchaseattributes"
+@using System.Net.Http.Json
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components.QuickGrid
+@using Infrastructure.Models.Responses
+@inject HttpClient Http
+@* Adjust to your toast service type, same one used in ComparisonMapping *@
+@inject IToastService Toasts
+
+<div class="comparison-modal-body">
+
+    <!-- Search -->
+    <div class="form-row">
+        <label class="field-label">Search :</label>
+        <input class="grid-input" @bind="SearchText" @bind:event="oninput" placeholder="Description..." />
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="modal-state">
+            <div class="spinner"></div>
+            <span>Loading purchase attributes...</span>
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert">
+            @errorMessage
+        </div>
+    }
+    else if (GridItems.Count == 0)
+    {
+        <div class="modal-state">
+            No purchase attribute data found.
+        </div>
+    }
+    else
+    {
+        <div class="grid-wrapper">
+
+            <QuickGrid TGridItem="PurchaseattributeDto"
+                       Items="FilteredItems"
+                       Pagination="pagination"
+                       RowClass="GetRowClass"
+                       Class="table table-hover recap-grid">
+
+                <PropertyColumn Property="@(x => x.Idpurchaseattribute)"
+                                Title="Id"
+                                Sortable="true" />
+
+                <!-- Description -->
+                <TemplateColumn Title="Description"
+                                SortBy="GridSort<PurchaseattributeDto>.ByAscending(x => x.Description)">
+                    @if (EditingRow == context &&
+                         EditingColumn == nameof(context.Description))
+                    {
+                        <input class="grid-input"
+                               @bind="context.Description"
+                               @bind:event="oninput"
+                               @onblur="EndEdit" />
+                    }
+                    else
+                    {
+                        <div class="editable-cell"
+                             @onclick="() => BeginEdit(context, nameof(context.Description))">
+                            @DisplayValue(context.Description)
+                        </div>
+                    }
+                </TemplateColumn>
+
+                <!-- Actions -->
+                <TemplateColumn Title="Actions">
+                    <button type="button"
+                            class="btn-primary"
+                            @onclick="() => SaveRow(context)"
+                            disabled="@(!IsRowModified(context) || isSaving)">
+                        Save
+                    </button>
+                    <button type="button"
+                            class="btn-primary"
+                            @onclick="() => DeleteRow(context)"
+                            disabled="@isSaving">
+                        Delete
+                    </button>
+                </TemplateColumn>
+
+            </QuickGrid>
+
+        </div>
+
+        <Paginator State="pagination" />
+    }
+
+    <!-- Add new -->
+    <div class="form-row">
+        <label class="field-label">
+            New description :
+            <span class="label-required">*</span>
+        </label>
+        <input class="grid-input"
+               @bind="NewDescription"
+               @bind:event="oninput" />
+        <button type="button"
+                class="btn-primary"
+                @onclick="CreateAsync"
+                disabled="@(isSaving || string.IsNullOrWhiteSpace(NewDescription))">
+            Add
+        </button>
+    </div>
+
+    <div class="comparison-modal-footer">
+
+        <div class="footer-message">
+            @if (!string.IsNullOrWhiteSpace(successMessage))
+            {
+                @successMessage
+            }
+        </div>
+
+        <div class="footer-actions">
+
+            <button type="button"
+                    class="btn-primary"
+                    @onclick="RefreshPurchaseAttributes"
+                    disabled="@isSaving">
+                Refresh
+            </button>
+
+            <button type="button"
+                    class="btn-primary"
+                    @onclick="SaveAll"
+                    disabled="@(!CanSaveAll)">
+                @(isSaving ? "Saving..." : "Save all")
+            </button>
+
+        </div>
+    </div>
+</div>
+
+@code
+{
+    private const string ApiBase = "/api/Purchaseattributes";
+    private const int MaxPageSize = 1000;
+
+    private PaginationState pagination = new PaginationState { ItemsPerPage = 15 };
+    private bool isLoading;
+    private bool isSaving;
+
+    private string? errorMessage;
+    private string? successMessage;
+
+    private List<PurchaseattributeDto> GridItems = new();
+    private List<PurchaseattributeDto> OriginalGridItems = new();
+
+    private PurchaseattributeDto? SelectedRow;
+    private PurchaseattributeDto? EditingRow;
+    private string? EditingColumn;
+
+    private string SearchText = string.Empty;
+    private string NewDescription = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await OpenPurchaseAttributes();
+    }
+
+    // ---------- Grid helpers ----------
+
+    private IQueryable<PurchaseattributeDto> FilteredItems =>
+        GridItems
+            .Where(x =>
+                string.IsNullOrWhiteSpace(SearchText) ||
+                (x.Description?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false))
+            .AsQueryable();
+
+    private string GetRowClass(PurchaseattributeDto item)
+    {
+        return SelectedRow == item
+            ? "selected-row"
+            : string.Empty;
+    }
+
+    private void BeginEdit(PurchaseattributeDto row, string column)
+    {
+        SelectedRow = row;
+        EditingRow = row;
+        EditingColumn = column;
+    }
+
+    private void EndEdit()
+    {
+        EditingRow = null;
+        EditingColumn = null;
+    }
+
+    private static string DisplayValue(object? value)
+    {
+        if (value is null)
+            return "--";
+
+        var text = value.ToString();
+
+        return string.IsNullOrWhiteSpace(text)
+            ? "--"
+            : text;
+    }
+
+    // ---------- Change tracking ----------
+
+    private bool IsRowModified(PurchaseattributeDto row)
+    {
+        var original = OriginalGridItems
+            .FirstOrDefault(o => o.Idpurchaseattribute == row.Idpurchaseattribute);
+
+        return original is null || original.Description != row.Description;
+    }
+
+    private List<PurchaseattributeDto> GetModifiedRows() =>
+        GridItems.Where(IsRowModified).ToList();
+
+    private bool HasChanges() => GetModifiedRows().Count > 0;
+
+    private bool CanSaveAll =>
+        !isLoading &&
+        !isSaving &&
+        GridItems.Count > 0;
+
+    private void TakeSnapshot()
+    {
+        OriginalGridItems =
+            JsonSerializer.Deserialize<List<PurchaseattributeDto>>(
+                JsonSerializer.Serialize(GridItems))
+            ?? new();
+    }
+
+    // ---------- Load / Refresh ----------
+
+    private async Task OpenPurchaseAttributes()
+    {
+        if (isLoading || isSaving)
+            return;
+
+        isLoading = true;
+
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            await LoadPurchaseAttributesAsync();
+        }
+        catch (HttpRequestException ex)
+        {
+            errorMessage = $"Unable to load Purchase Attribute data: {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"An unexpected error occurred: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadPurchaseAttributesAsync()
+    {
+        var data =
+            await Http.GetFromJsonAsync<List<PurchaseattributeDto>>(
+                $"{ApiBase}?page=1&pageSize={MaxPageSize}");
+
+        GridItems = data ?? new List<PurchaseattributeDto>();
+
+        TakeSnapshot();
+
+        SelectedRow = null;
+        EditingRow = null;
+        EditingColumn = null;
+    }
+
+    private async Task RefreshPurchaseAttributes()
+    {
+        try
+        {
+            isLoading = true;
+
+            errorMessage = null;
+            successMessage = null;
+
+            await LoadPurchaseAttributesAsync();
+
+            Toasts.Success("Purchase Attributes refreshed successfully.");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unable to refresh: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    // ---------- Create ----------
+
+    private async Task CreateAsync()
+    {
+        if (isSaving || string.IsNullOrWhiteSpace(NewDescription))
+            return;
+
+        isSaving = true;
+
+        try
+        {
+            var dto = new PurchaseattributeDto { Description = NewDescription.Trim() };
+
+            using var response =
+                await Http.PostAsJsonAsync(ApiBase, dto);
+
+            if (response.IsSuccessStatusCode)
+            {
+                Toasts.Success("Created successfully");
+
+                NewDescription = string.Empty;
+
+                await LoadPurchaseAttributesAsync();
+            }
+            else
+            {
+                await ShowHttpError(response, "Unable to create purchase attribute.");
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            Toasts.Error($"Unable to create Purchase Attribute: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            Toasts.Error($"An unexpected error occurred: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    // ---------- Update ----------
+
+    private async Task SaveRow(PurchaseattributeDto row)
+    {
+        if (isSaving)
+            return;
+
+        if (!IsRowModified(row))
+        {
+            Toasts.Warning("Please make changes before saving.");
+            return;
+        }
+
+        isSaving = true;
+
+        try
+        {
+            if (await UpdateRowAsync(row))
+            {
+                Toasts.Success("Save successful");
+                TakeSnapshot();
+                EndEdit();
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            Toasts.Error($"Unable to save Purchase Attribute: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            Toasts.Error($"An unexpected error occurred: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task SaveAll()
+    {
+        if (!HasChanges())
+        {
+            Toasts.Warning("Please make changes before saving.");
+            return;
+        }
+
+        if (!CanSaveAll)
+            return;
+
+        isSaving = true;
+
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            var failed = 0;
+
+            foreach (var row in GetModifiedRows())
+            {
+                if (!await UpdateRowAsync(row))
+                    failed++;
+            }
+
+            if (failed == 0)
+            {
+                Toasts.Success("Save successful");
+            }
+
+            await LoadPurchaseAttributesAsync();
+        }
+        catch (HttpRequestException ex)
+        {
+            Toasts.Error($"Unable to save Purchase Attributes: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            Toasts.Error($"An unexpected error occurred: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task<bool> UpdateRowAsync(PurchaseattributeDto row)
+    {
+        using var response =
+            await Http.PutAsJsonAsync(
+                $"{ApiBase}/{row.Idpurchaseattribute}",
+                row);
+
+        if (response.IsSuccessStatusCode)
+            return true;
+
+        await ShowHttpError(response, "Unable to save data.");
+        return false;
+    }
+
+    // ---------- Delete ----------
+
+    private async Task DeleteRow(PurchaseattributeDto row)
+    {
+        if (isSaving)
+            return;
+
+        isSaving = true;
+
+        try
+        {
+            using var response =
+                await Http.DeleteAsync($"{ApiBase}/{row.Idpurchaseattribute}");
+
+            if (response.IsSuccessStatusCode)
+            {
+                Toasts.Success("Deleted successfully");
+
+                await LoadPurchaseAttributesAsync();
+            }
+            else
+            {
+                await ShowHttpError(response, "Unable to delete data.");
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            Toasts.Error($"Unable to delete Purchase Attribute: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            Toasts.Error($"An unexpected error occurred: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    // ---------- Shared ----------
+
+    private async Task ShowHttpError(HttpResponseMessage response, string fallback)
+    {
+        var message = await response.Content.ReadAsStringAsync();
+
+        Toasts.Error(
+            string.IsNullOrWhiteSpace(message)
+                ? $"{fallback} HTTP {(int)response.StatusCode}"
+                : message);
+    }
+}
