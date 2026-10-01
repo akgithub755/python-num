@@ -12,7 +12,7 @@
 
     @if (isLoading)
     {
-        <div class="p-4 text-sm">Loading dicoview questions...</div>
+        <div class="p-4 text-sm">Loading dicoview reponses...</div>
     }
     else if (!string.IsNullOrWhiteSpace(errorMessage))
     {
@@ -43,6 +43,7 @@
                                          editingCol == col.Title)
                                     {
                                         <input class="w-full border px-1"
+                                               type="@(col.IsNumber ? "number" : "text")"
                                                value="@col.Get(row)"
                                                @oninput="e => Change(row, col, e.Value?.ToString())"
                                                @onblur="EndEdit"
@@ -78,31 +79,34 @@
 </div>
 
 @code {
-    private const string Api = "/api/DicoviewQuestions";
+    private const string Api = "/api/DicoviewReponses";
     private const int PageSize = 100000;   // one request, loads the whole table
 
     private record Col(
         string Title,
-        Func<DicoviewQuestionDto, string?> Get,
-        Action<DicoviewQuestionDto, string?>? Set = null,
-        bool NewOnly = false);
+        Func<DicoviewReponseDto, string?> Get,
+        Action<DicoviewReponseDto, string?>? Set = null,
+        bool NewOnly = false,
+        bool IsNumber = false);
 
     // Set == null -> read-only column, NewOnly -> editable only on newly added rows
     private readonly List<Col> cols = new()
     {
-        new("QuestionCode", x => x.QuestionCode, (x, v) => x.QuestionCode = v?.Trim() ?? string.Empty, true),
-        new("QuestionDesc", x => x.QuestionDesc, (x, v) => x.QuestionDesc = v),
-        new("TypeQuestion", x => x.TypeQuestion, (x, v) => x.TypeQuestion = v),
-        new("InsertDate", x => x.InsertDate),
-        new("UpdateDate", x => x.UpdateDate),
+        new("QuestionCode", x => x.QuestionCode,
+            (x, v) => x.QuestionCode = v?.Trim() ?? string.Empty, true),
+        new("ReponseCode", x => x.ReponseCode.ToString(),
+            (x, v) => { if (int.TryParse(v, out var n)) x.ReponseCode = n; }, true, true),
+        new("ReponseDesc", x => x.ReponseDesc, (x, v) => x.ReponseDesc = v),
+        new("InsertDate", x => x.InsertDate.ToString("yyyy-MM-dd HH:mm:ss")),
+        new("UpdateDate", x => x.UpdateDate.ToString("yyyy-MM-dd HH:mm:ss")),
     };
 
-    private List<DicoviewQuestionDto> rows = new();
-    private Dictionary<DicoviewQuestionDto, string> original = new();
-    private readonly HashSet<DicoviewQuestionDto> newRows = new();
+    private List<DicoviewReponseDto> rows = new();
+    private Dictionary<DicoviewReponseDto, string> original = new();
+    private readonly HashSet<DicoviewReponseDto> newRows = new();
 
-    private DicoviewQuestionDto? selectedRow;
-    private DicoviewQuestionDto? editingRow;
+    private DicoviewReponseDto? selectedRow;
+    private DicoviewReponseDto? editingRow;
     private string? editingCol;
 
     private bool isLoading;
@@ -115,15 +119,15 @@
 
     private static string DisplayValue(string? v) => string.IsNullOrWhiteSpace(v) ? "--" : v;
 
-    private bool CanEdit(DicoviewQuestionDto row, Col col) =>
+    private bool CanEdit(DicoviewReponseDto row, Col col) =>
         col.Set is not null && (!col.NewOnly || newRows.Contains(row));
 
-    private bool IsModified(DicoviewQuestionDto row) =>
+    private bool IsModified(DicoviewReponseDto row) =>
         !newRows.Contains(row) &&
         original.TryGetValue(row, out var json) &&
         json != JsonSerializer.Serialize(row);
 
-    private string GetRowClass(DicoviewQuestionDto row)
+    private string GetRowClass(DicoviewReponseDto row)
     {
         if (row == selectedRow) return "bg-blue-100";
         if (newRows.Contains(row)) return "bg-green-50";
@@ -131,7 +135,7 @@
         return string.Empty;
     }
 
-    private void BeginEdit(DicoviewQuestionDto row, Col col)
+    private void BeginEdit(DicoviewReponseDto row, Col col)
     {
         selectedRow = row;
 
@@ -148,8 +152,11 @@
         editingCol = null;
     }
 
-    private void Change(DicoviewQuestionDto row, Col col, string? value) =>
+    private void Change(DicoviewReponseDto row, Col col, string? value) =>
         col.Set!(row, string.IsNullOrWhiteSpace(value) ? null : value);
+
+    private static string KeyUrl(DicoviewReponseDto row) =>
+        $"{Api}/{Uri.EscapeDataString(row.QuestionCode)}/{row.ReponseCode}";
 
     // ---------- load / refresh ----------
 
@@ -160,7 +167,7 @@
 
         try
         {
-            rows = await Http.GetFromJsonAsync<List<DicoviewQuestionDto>>(
+            rows = await Http.GetFromJsonAsync<List<DicoviewReponseDto>>(
                        $"{Api}?page=1&pageSize={PageSize}") ?? new();
 
             original = rows.ToDictionary(r => r, r => JsonSerializer.Serialize(r));
@@ -170,7 +177,7 @@
         }
         catch (HttpRequestException ex)
         {
-            errorMessage = $"Unable to load Dicoview Questions data: {ex.Message}";
+            errorMessage = $"Unable to load Dicoview Reponses data: {ex.Message}";
         }
         catch (Exception ex)
         {
@@ -191,21 +198,18 @@
         await Load();
 
         if (errorMessage is null)
-            Toasts.Success("Dicoview Questions refreshed successfully.");
+            Toasts.Success("Dicoview Reponses refreshed successfully.");
     }
 
     // ---------- add / save / delete ----------
 
     private void AddRow()
     {
-        // the DTO's InsertDate / UpdateDate are non-nullable strings, so give them a value
-        var now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-
-        var row = new DicoviewQuestionDto
+        var row = new DicoviewReponseDto
         {
             QuestionCode = string.Empty,
-            InsertDate = now,
-            UpdateDate = now
+            InsertDate = DateTime.Now,
+            UpdateDate = DateTime.Now
         };
 
         newRows.Add(row);
@@ -239,13 +243,12 @@
             foreach (var row in creates)
             {
                 using var r = await Http.PostAsJsonAsync(Api, row);
-                if (!await Check(r, "Unable to create question.")) return;
+                if (!await Check(r, "Unable to create response.")) return;
             }
 
             foreach (var row in updates)
             {
-                using var r = await Http.PutAsJsonAsync(
-                    $"{Api}/{Uri.EscapeDataString(row.QuestionCode)}", row);
+                using var r = await Http.PutAsJsonAsync(KeyUrl(row), row);
                 if (!await Check(r, "Unable to save data.")) return;
             }
 
@@ -254,7 +257,7 @@
         }
         catch (HttpRequestException ex)
         {
-            Toasts.Error($"Unable to save Dicoview Questions: {ex.Message}");
+            Toasts.Error($"Unable to save Dicoview Reponses: {ex.Message}");
         }
         catch (Exception ex)
         {
@@ -286,8 +289,7 @@
 
         try
         {
-            using var r = await Http.DeleteAsync(
-                $"{Api}/{Uri.EscapeDataString(selectedRow.QuestionCode)}");
+            using var r = await Http.DeleteAsync(KeyUrl(selectedRow));
 
             if (await Check(r, "Unable to delete data."))
             {
@@ -323,25 +325,3 @@
         return false;
     }
 }
-
-
-
-["dicoview_questions"] = typeof(DicoviewQuestionsTable),
-
-
-
-
-<td class="px-3 py-2 border-r">
-    @if (newRows.Contains(row))
-    {
-        <input class="w-full border px-1"
-               type="number"
-               @bind="row.Idpurchaseattribute"
-               @bind:event="oninput"
-               @onclick:stopPropagation="true" />
-    }
-    else
-    {
-        <span class="text-gray-500">@row.Idpurchaseattribute</span>
-    }
-</td>
