@@ -8,8 +8,16 @@
                     box-shadow: 0 10px 30px rgba(0,0,0,0.3);">
             <div class="font-medium" style="margin-bottom: 8px;">@Title</div>
             <div class="text-sm" style="margin-bottom: 20px;">@Message</div>
-            <div style="text-align: right;">
-                <button class="btn-primary text-sm px-3 py-2" @onclick="Close">OK</button>
+            <div style="text-align: right; display: flex; gap: 8px; justify-content: flex-end;">
+                @if (ShowCancel)
+                {
+                    <button class="btn-primary text-sm px-3 py-2" @onclick="Cancel">Cancel</button>
+                    <button class="btn-primary text-sm px-3 py-2" @onclick="Confirm">@OkText</button>
+                }
+                else
+                {
+                    <button class="btn-primary text-sm px-3 py-2" @onclick="Cancel">@OkText</button>
+                }
             </div>
         </div>
     </div>
@@ -18,87 +26,94 @@
 @code {
     [Parameter] public string Title { get; set; } = "Duplicate entry";
     [Parameter] public string? Message { get; set; }
-    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public string OkText { get; set; } = "OK";
+    [Parameter] public bool ShowCancel { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }     // OK (info mode) or Cancel
+    [Parameter] public EventCallback OnConfirm { get; set; }   // confirm button in ShowCancel mode
 
-    private Task Close() => OnClose.InvokeAsync();
-}
-
-
-<MessageDialog Message="@dialogMessage" OnClose="() => dialogMessage = null" />
-
-
-private string? dialogMessage;
-
-
-var duplicate = FindDuplicate(creates);
-if (duplicate is not null)
-{
-    dialogMessage = duplicate;
-    return;
+    private Task Cancel() => OnClose.InvokeAsync();
+    private Task Confirm() => OnConfirm.InvokeAsync();
 }
 
 
 
-private string? FindDuplicate(List<DicoviewQuestionDto> creates)
-{
-    var seen = new HashSet<string>(
-        rows.Where(x => !newRows.Contains(x)).Select(x => x.QuestionCode.Trim()),
-        StringComparer.OrdinalIgnoreCase);
+<MessageDialog Title="Confirm delete"
+               Message="@confirmDeleteMessage"
+               ShowCancel="true"
+               OkText="Delete"
+               OnConfirm="ConfirmDelete"
+               OnClose="() => confirmDeleteMessage = null" />
 
-    foreach (var r in creates)
+<MessageDialog Title="Delete"
+               Message="@deleteResultMessage"
+               OnClose="() => deleteResultMessage = null" />
+
+
+
+
+
+private string? confirmDeleteMessage;
+private string? deleteResultMessage;
+
+
+
+
+private void DeleteRow()
+{
+    if (selectedRow is null)
+        return;
+
+    // unsaved new row: just drop it, nothing to delete on the server
+    if (newRows.Contains(selectedRow))
     {
-        var code = r.QuestionCode.Trim();
-        if (!seen.Add(code))
-            return $"The question code '{code}' is already present in the database.";
+        newRows.Remove(selectedRow);
+        rows.Remove(selectedRow);
+        selectedRow = null;
+        return;
     }
 
-    return null;
+    confirmDeleteMessage = "Are you sure you want to delete the selected row?";
 }
 
-
-
-private string? FindDuplicate(List<DicoviewReponseDto> creates)
+private async Task ConfirmDelete()
 {
-    var seen = rows.Where(x => !newRows.Contains(x))
-                   .Select(x => (x.QuestionCode.Trim().ToLowerInvariant(), x.ReponseCode))
-                   .ToHashSet();
+    confirmDeleteMessage = null;
 
-    foreach (var r in creates)
+    if (selectedRow is null)
+        return;
+
+    isSaving = true;
+
+    try
     {
-        var code = r.QuestionCode.Trim();
-        if (!seen.Add((code.ToLowerInvariant(), r.ReponseCode)))
-            return $"The question code '{code}' with reponse code {r.ReponseCode} is already present in the database.";
-    }
+        using var r = await Http.DeleteAsync(DELETE_URL_HERE);
 
-    return null;
+        if (r.IsSuccessStatusCode)
+        {
+            deleteResultMessage = "The row was deleted successfully.";
+            await Load();
+        }
+        else
+        {
+            var msg = await r.Content.ReadAsStringAsync();
+            deleteResultMessage = string.IsNullOrWhiteSpace(msg)
+                ? $"Unable to delete data. HTTP {(int)r.StatusCode}"
+                : msg;
+        }
+    }
+    catch (Exception ex)
+    {
+        deleteResultMessage = $"Unable to delete row: {ex.Message}";
+    }
+    finally
+    {
+        isSaving = false;
+    }
 }
 
 
 
-private string? FindDuplicate(List<InputCodesToDownloadDto> creates)
-{
-    var seen = rows.Where(x => !newRows.Contains(x)).Select(x => x.Id).ToHashSet();
-
-    foreach (var r in creates.Where(r => r.Id != 0))
-    {
-        if (!seen.Add(r.Id))
-            return $"The id {r.Id} is already present in the database.";
-    }
-
-    return null;
-}
-
-
-
-private string? FindDuplicate(List<PurchaseattributeDto> creates)
-{
-    var seen = rows.Where(x => !newRows.Contains(x)).Select(x => x.Idpurchaseattribute).ToHashSet();
-
-    foreach (var r in creates.Where(r => r.Idpurchaseattribute != 0))
-    {
-        if (!seen.Add(r.Idpurchaseattribute))
-            return $"The id {r.Idpurchaseattribute} is already present in the database.";
-    }
-
-    return null;
-}
+PurchaseAttributeTable	$"{Api}/{selectedRow.Idpurchaseattribute}"
+InputCodesToDownloadTable	$"{Api}/{selectedRow.Id}"
+DicoviewQuestionsTable	$"{Api}/{Uri.EscapeDataString(selectedRow.QuestionCode)}"
+DicoviewReponsesTable	KeyUrl(selectedRow)
