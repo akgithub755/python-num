@@ -1,31 +1,14 @@
-try
+var entity = await _context.InputCodesToDownloads
+    .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+
+if (entity is null)
 {
-    var all = new List<InputCodesToDownloadDto>();
-    var seen = new HashSet<uint>();
-
-    for (var page = 1; ; page++)
-    {
-        var batch = await Http.GetFromJsonAsync<List<InputCodesToDownloadDto>>(
-                        $"{Api}?page={page}&pageSize={PageSize}") ?? new();
-
-        var added = 0;
-        foreach (var item in batch)
-        {
-            if (seen.Add(item.Id))   // skips duplicate Ids
-            {
-                all.Add(item);
-                added++;
-            }
-        }
-
-        // last page reached, or the API returned nothing new
-        if (batch.Count < PageSize || added == 0)
-            break;
-    }
-
-    rows = all;
-    original = rows.ToDictionary(r => r, r => JsonSerializer.Serialize(r));
-    newRows.Clear();
-    selectedRow = null;
-    EndEdit();
+    _logger.LogInformation("InputCodesToDownload not found for delete: {Id}", id);
+    return false;
 }
+
+_context.InputCodesToDownloads.Remove(entity);
+await _context.SaveChangesAsync(cancellationToken);
+
+_logger.LogInformation("InputCodesToDownload deleted: {Id}", id);
+return true;
