@@ -1,18 +1,4 @@
-foreach (var row in updates)
-{
-    row.UpdateDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");   // <- add this line
-
-    using var r = await Http.PutAsJsonAsync(
-        $"{Api}/{Uri.EscapeDataString(row.QuestionCode)}", row);
-    if (!await Check(r, "Unable to save data.")) return;
-}
+@if (ReferenceEquals(editingRow, row))
 
 
-
-foreach (var row in updates)
-{
-    row.UpdateDate = DateTime.Now;   // <- add this line
-
-    using var r = await Http.PutAsJsonAsync(KeyUrl(row), row);
-    if (!await Check(r, "Unable to save data.")) return;
-}
+@if (newRows.Contains(row) || ReferenceEquals(editingRow, row))
