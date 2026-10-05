@@ -1,69 +1,15 @@
-@namespace OnDemandLaunchApp.Pages.Table_Management.Tables
-
-@if (!string.IsNullOrEmpty(Message))
-{
-    <div style="position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1000;
-                display: flex; align-items: center; justify-content: center;">
-        <div style="background: #fff; border-radius: 6px; padding: 24px; min-width: 320px; max-width: 480px;
-                    box-shadow: 0 10px 30px rgba(0,0,0,0.3);">
-            <div class="font-medium" style="margin-bottom: 8px;">@Title</div>
-            <div class="text-sm" style="margin-bottom: 20px;">@Message</div>
-            <div style="text-align: right; display: flex; gap: 8px; justify-content: flex-end;">
-                @if (ShowCancel)
-                {
-                    <button class="btn-primary text-sm px-3 py-2" @onclick="Cancel">Cancel</button>
-                    <button class="btn-primary text-sm px-3 py-2" @onclick="Confirm">@OkText</button>
-                }
-                else
-                {
-                    <button class="btn-primary text-sm px-3 py-2" @onclick="Cancel">@OkText</button>
-                }
-            </div>
-        </div>
-    </div>
-}
-
-@code {
-    [Parameter] public string Title { get; set; } = "Duplicate entry";
-    [Parameter] public string? Message { get; set; }
-    [Parameter] public string OkText { get; set; } = "OK";
-    [Parameter] public bool ShowCancel { get; set; }
-    [Parameter] public EventCallback OnClose { get; set; }     // OK (info mode) or Cancel
-    [Parameter] public EventCallback OnConfirm { get; set; }   // confirm button in ShowCancel mode
-
-    private Task Cancel() => OnClose.InvokeAsync();
-    private Task Confirm() => OnConfirm.InvokeAsync();
-}
-
-
-
-<MessageDialog Title="Confirm delete"
-               Message="@confirmDeleteMessage"
-               ShowCancel="true"
-               OkText="Delete"
-               OnConfirm="ConfirmDelete"
-               OnClose="() => confirmDeleteMessage = null" />
-
-<MessageDialog Title="Delete"
-               Message="@deleteResultMessage"
-               OnClose="() => deleteResultMessage = null" />
+private List<DicoviewReponseDto> children = new();
 
 
 
 
 
-private string? confirmDeleteMessage;
-private string? deleteResultMessage;
-
-
-
-
-private void DeleteRow()
+private async Task DeleteRow()
 {
     if (selectedRow is null)
         return;
 
-    // unsaved new row: just drop it, nothing to delete on the server
+    // unsaved new row: nothing on the server to delete
     if (newRows.Contains(selectedRow))
     {
         newRows.Remove(selectedRow);
@@ -72,8 +18,32 @@ private void DeleteRow()
         return;
     }
 
-    confirmDeleteMessage = "Are you sure you want to delete the selected row?";
+    // look for responses that depend on this question
+    try
+    {
+        var all = await Http.GetFromJsonAsync<List<DicoviewReponseDto>>(
+                      "/api/DicoviewReponses?page=1&pageSize=100000") ?? new();
+
+        children = all.Where(x => string.Equals(
+                       x.QuestionCode, selectedRow.QuestionCode,
+                       StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+    catch (Exception ex)
+    {
+        deleteResultMessage = $"Unable to check related responses: {ex.Message}";
+        return;
+    }
+
+    confirmDeleteMessage = children.Count == 0
+        ? "Are you sure you want to delete the selected question?"
+        : $"This question has {children.Count} response(s) in dicoview_reponses. " +
+          "Deleting it will also permanently delete those responses. Continue?";
 }
+
+
+
+
+
 
 private async Task ConfirmDelete()
 {
@@ -86,11 +56,29 @@ private async Task ConfirmDelete()
 
     try
     {
-        using var r = await Http.DeleteAsync(DELETE_URL_HERE);
+        // children first, the parent can only go once nothing references it
+        foreach (var c in children)
+        {
+            using var rc = await Http.DeleteAsync(
+                $"/api/DicoviewReponses/{Uri.EscapeDataString(c.QuestionCode)}/{c.ReponseCode}");
+
+            if (!rc.IsSuccessStatusCode)
+            {
+                deleteResultMessage =
+                    $"Unable to delete related response {c.ReponseCode}, so the question was not deleted.";
+                await Load();
+                return;
+            }
+        }
+
+        using var r = await Http.DeleteAsync(
+            $"{Api}/{Uri.EscapeDataString(selectedRow.QuestionCode)}");
 
         if (r.IsSuccessStatusCode)
         {
-            deleteResultMessage = "The row was deleted successfully.";
+            deleteResultMessage = children.Count == 0
+                ? "The question was deleted successfully."
+                : $"The question and its {children.Count} response(s) were deleted successfully.";
             await Load();
         }
         else
@@ -110,10 +98,3 @@ private async Task ConfirmDelete()
         isSaving = false;
     }
 }
-
-
-
-PurchaseAttributeTable	$"{Api}/{selectedRow.Idpurchaseattribute}"
-InputCodesToDownloadTable	$"{Api}/{selectedRow.Id}"
-DicoviewQuestionsTable	$"{Api}/{Uri.EscapeDataString(selectedRow.QuestionCode)}"
-DicoviewReponsesTable	KeyUrl(selectedRow)
