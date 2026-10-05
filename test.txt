@@ -1,100 +1,18 @@
-private List<DicoviewReponseDto> children = new();
-
-
-
-
-
-private async Task DeleteRow()
+foreach (var row in updates)
 {
-    if (selectedRow is null)
-        return;
+    row.UpdateDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");   // <- add this line
 
-    // unsaved new row: nothing on the server to delete
-    if (newRows.Contains(selectedRow))
-    {
-        newRows.Remove(selectedRow);
-        rows.Remove(selectedRow);
-        selectedRow = null;
-        return;
-    }
-
-    // look for responses that depend on this question
-    try
-    {
-        var all = await Http.GetFromJsonAsync<List<DicoviewReponseDto>>(
-                      "/api/DicoviewReponses?page=1&pageSize=100000") ?? new();
-
-        children = all.Where(x => string.Equals(
-                       x.QuestionCode, selectedRow.QuestionCode,
-                       StringComparison.OrdinalIgnoreCase)).ToList();
-    }
-    catch (Exception ex)
-    {
-        deleteResultMessage = $"Unable to check related responses: {ex.Message}";
-        return;
-    }
-
-    confirmDeleteMessage = children.Count == 0
-        ? "Are you sure you want to delete the selected question?"
-        : $"This question has {children.Count} response(s) in dicoview_reponses. " +
-          "Deleting it will also permanently delete those responses. Continue?";
+    using var r = await Http.PutAsJsonAsync(
+        $"{Api}/{Uri.EscapeDataString(row.QuestionCode)}", row);
+    if (!await Check(r, "Unable to save data.")) return;
 }
 
 
 
-
-
-
-private async Task ConfirmDelete()
+foreach (var row in updates)
 {
-    confirmDeleteMessage = null;
+    row.UpdateDate = DateTime.Now;   // <- add this line
 
-    if (selectedRow is null)
-        return;
-
-    isSaving = true;
-
-    try
-    {
-        // children first, the parent can only go once nothing references it
-        foreach (var c in children)
-        {
-            using var rc = await Http.DeleteAsync(
-                $"/api/DicoviewReponses/{Uri.EscapeDataString(c.QuestionCode)}/{c.ReponseCode}");
-
-            if (!rc.IsSuccessStatusCode)
-            {
-                deleteResultMessage =
-                    $"Unable to delete related response {c.ReponseCode}, so the question was not deleted.";
-                await Load();
-                return;
-            }
-        }
-
-        using var r = await Http.DeleteAsync(
-            $"{Api}/{Uri.EscapeDataString(selectedRow.QuestionCode)}");
-
-        if (r.IsSuccessStatusCode)
-        {
-            deleteResultMessage = children.Count == 0
-                ? "The question was deleted successfully."
-                : $"The question and its {children.Count} response(s) were deleted successfully.";
-            await Load();
-        }
-        else
-        {
-            var msg = await r.Content.ReadAsStringAsync();
-            deleteResultMessage = string.IsNullOrWhiteSpace(msg)
-                ? $"Unable to delete data. HTTP {(int)r.StatusCode}"
-                : msg;
-        }
-    }
-    catch (Exception ex)
-    {
-        deleteResultMessage = $"Unable to delete row: {ex.Message}";
-    }
-    finally
-    {
-        isSaving = false;
-    }
+    using var r = await Http.PutAsJsonAsync(KeyUrl(row), row);
+    if (!await Check(r, "Unable to save data.")) return;
 }
