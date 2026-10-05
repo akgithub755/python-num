@@ -2,3 +2,15 @@
 
 
 @if (newRows.Contains(row) || ReferenceEquals(editingRow, row))
+
+
+
+@if (CanEdit(row, col) &&
+     ReferenceEquals(editingRow, row) &&
+     editingCol == col.Title)
+
+
+
+@if (CanEdit(row, col) &&
+     (newRows.Contains(row) ||
+      (ReferenceEquals(editingRow, row) && editingCol == col.Title)))
