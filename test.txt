@@ -1,16 +1,345 @@
-@if (ReferenceEquals(editingRow, row))
+@namespace OnDemandLaunchApp.Pages.Table_Management.Tables
+@using System.Net.Http.Json
+@using System.Text.Json
+@using Infrastructure.Models.Responses
+@using OnDemandLaunchApp.Services
+@inject ToastService Toasts
+@* Remove the next two lines if _Imports.razor already injects them *@
+@inject HttpClient Http
+@inject IJSRuntime JS
 
+<div class="border rounded shadow-sm overflow-hidden flex flex-col">
 
-@if (newRows.Contains(row) || ReferenceEquals(editingRow, row))
+    @if (isLoading)
+    {
+        <div class="p-4 text-sm">Loading roles...</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="p-4 text-sm alert">@errorMessage</div>
+    }
+    else
+    {
+        <div style="max-height: 65vh; overflow: auto;">
+            <table class="w-full text-sm border-collapse">
+                <thead>
+                    <tr class="bg-gray-50 border-b">
+                        @foreach (var col in cols)
+                        {
+                            <th class="text-left px-3 py-2 font-medium border-r last:border-r-0"
+                                style="position: sticky; top: 0; background: #f9fafb;">@col.Title</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in rows)
+                    {
+                        <tr class="border-b hover:bg-gray-50 @GetRowClass(row)" @onclick="() => selectedRow = row">
+                            @foreach (var col in cols)
+                            {
+                                <td class="px-3 py-2 border-r last:border-r-0">
+                                    @if (CanEdit(row, col))
+                                    {
+                                        <input class="w-full border px-1"
+                                               value="@col.Get(row)"
+                                               @oninput="e => Change(row, col, e.Value?.ToString())"
+                                               @onclick:stopPropagation="true" />
+                                    }
+                                    else
+                                    {
+                                        <div class="h-6 text-gray-500" @onclick="() => selectedRow = row">
+                                            @DisplayValue(col.Get(row))
+                                        </div>
+                                    }
+                                </td>
+                            }
+                        </tr>
+                    }
+                    @if (rows.Count == 0)
+                    {
+                        <tr><td class="px-3 py-3 text-gray-400" colspan="@cols.Count">No data found.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
 
+    <div class="flex gap-2 justify-start items-center p-3 border-t bg-gray-50">
+        <button class="btn-primary text-sm px-3 py-2" @onclick="Refresh" disabled="@(isLoading || isSaving)">Refresh</button>
+        <button class="btn-primary text-sm px-3 py-2" @onclick="AddRow" disabled="@(isLoading || isSaving)">Add row</button>
+        <button class="btn-primary text-sm px-3 py-2" @onclick="Save" disabled="@(isLoading || isSaving)">@(isSaving ? "Saving..." : "Save")</button>
+        <button class="btn-primary text-sm px-3 py-2" @onclick="DeleteRow" disabled="@(isLoading || isSaving || selectedRow is null)">Delete</button>
+        <span class="text-xs text-gray-500 ml-2">@rows.Count row(s)</span>
+    </div>
+</div>
 
+<MessageDialog Message="@dialogMessage" OnClose="() => dialogMessage = null" />
 
-@if (CanEdit(row, col) &&
-     ReferenceEquals(editingRow, row) &&
-     editingCol == col.Title)
+<MessageDialog Title="Confirm delete"
+               Message="@confirmDeleteMessage"
+               ShowCancel="true"
+               OkText="Delete"
+               OnConfirm="ConfirmDelete"
+               OnClose="() => confirmDeleteMessage = null" />
 
+<MessageDialog Title="Delete"
+               Message="@deleteResultMessage"
+               OnClose="() => deleteResultMessage = null" />
 
+@code {
+    // RolesController: [Route("api/[controller]")] + the action names
+    private const string ListUrl = "/api/Roles/GetAllRoles";     // [HttpGet("GetAllRoles")]
+    private const string CreateUrl = "/api/Roles/CreateRole";    // [HttpPost("CreateRole")]
+    private const string DeleteUrl = "/api/Roles/DeleteRoleById"; // [HttpDelete("DeleteRoleById/{id}")]
 
-@if (CanEdit(row, col) &&
-     (newRows.Contains(row) ||
-      (ReferenceEquals(editingRow, row) && editingCol == col.Title)))
+    private record Col(
+        string Title,
+        Func<OnDemandRoleDto, string?> Get,
+        Action<OnDemandRoleDto, string?>? Set = null);
+
+    // Set == null -> read-only column. There is no update endpoint, so existing rows are read-only
+    // and only new rows get edit boxes.
+    private readonly List<Col> cols = new()
+    {
+        new("RoleId", x => x.RoleId == 0 ? "(new)" : x.RoleId.ToString()),
+        new("RoleName", x => x.RoleName, (x, v) => x.RoleName = v?.Trim() ?? string.Empty),
+        new("Description", x => x.Description, (x, v) => x.Description = v),
+    };
+
+    private List<OnDemandRoleDto> rows = new();
+    private readonly HashSet<OnDemandRoleDto> newRows = new();
+
+    private OnDemandRoleDto? selectedRow;
+
+    private bool isLoading;
+    private bool isSaving;
+    private string? errorMessage;
+
+    private string? dialogMessage;
+    private string? confirmDeleteMessage;
+    private string? deleteResultMessage;
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    // ---------- helpers ----------
+
+    private static string DisplayValue(string? v) => string.IsNullOrWhiteSpace(v) ? "--" : v;
+
+    // every editable cell of a new row shows an input at once, saved rows are read-only
+    private bool CanEdit(OnDemandRoleDto row, Col col) =>
+        col.Set is not null && newRows.Contains(row);
+
+    private string GetRowClass(OnDemandRoleDto row)
+    {
+        if (row == selectedRow) return "bg-blue-100";
+        if (newRows.Contains(row)) return "bg-green-50";
+        return string.Empty;
+    }
+
+    private void Change(OnDemandRoleDto row, Col col, string? value) =>
+        col.Set!(row, string.IsNullOrWhiteSpace(value) ? null : value);
+
+    // shows plain text from the API (BadRequest("...")) or the "message" of a JSON body
+    private static async Task<string> ReadMessage(HttpResponseMessage r)
+    {
+        var body = await r.Content.ReadAsStringAsync();
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+
+            if (doc.RootElement.ValueKind == JsonValueKind.String)
+                return doc.RootElement.GetString() ?? body;
+
+            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var p in doc.RootElement.EnumerateObject())
+                    if (p.Name.Equals("message", StringComparison.OrdinalIgnoreCase) &&
+                        p.Value.ValueKind == JsonValueKind.String)
+                        return p.Value.GetString() ?? body;
+            }
+        }
+        catch (Exception)
+        {
+            // body was plain text, show it as-is
+        }
+
+        return string.IsNullOrWhiteSpace(body)
+            ? $"Request failed. HTTP {(int)r.StatusCode}"
+            : body;
+    }
+
+    // ---------- load / refresh ----------
+
+    private async Task Load()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            rows = await Http.GetFromJsonAsync<List<OnDemandRoleDto>>(ListUrl) ?? new();
+
+            newRows.Clear();
+            selectedRow = null;
+        }
+        catch (HttpRequestException ex)
+        {
+            errorMessage = $"Unable to load Roles data: {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"An unexpected error occurred: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task Refresh()
+    {
+        if (newRows.Count > 0 &&
+            !await JS.InvokeAsync<bool>("confirm", "Discard unsaved changes?"))
+            return;
+
+        await Load();
+
+        if (errorMessage is null)
+            Toasts.Success("Roles refreshed successfully.");
+    }
+
+    // ---------- add / save ----------
+
+    private void AddRow()
+    {
+        var row = new OnDemandRoleDto { RoleName = string.Empty };
+        newRows.Add(row);
+        rows.Insert(0, row);
+        selectedRow = row;
+    }
+
+    private string? FindDuplicate(List<OnDemandRoleDto> creates)
+    {
+        var seen = new HashSet<string>(
+            rows.Where(x => !newRows.Contains(x)).Select(x => (x.RoleName ?? "").Trim()),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var r in creates)
+        {
+            var name = (r.RoleName ?? "").Trim();
+            if (!seen.Add(name))
+                return $"The role name '{name}' is already present in the database.";
+        }
+
+        return null;
+    }
+
+    private async Task Save()
+    {
+        var creates = rows.Where(newRows.Contains).ToList();
+
+        if (creates.Count == 0)
+        {
+            Toasts.Warning("Please make changes before saving.");
+            return;
+        }
+
+        if (creates.Any(r => string.IsNullOrWhiteSpace(r.RoleName)))
+        {
+            Toasts.Warning("Role name is required for new rows.");
+            return;
+        }
+
+        var duplicate = FindDuplicate(creates);
+        if (duplicate is not null)
+        {
+            dialogMessage = duplicate;
+            return;
+        }
+
+        isSaving = true;
+
+        try
+        {
+            foreach (var row in creates)
+            {
+                using var r = await Http.PostAsJsonAsync(CreateUrl, row);
+
+                if (!r.IsSuccessStatusCode)
+                {
+                    Toasts.Error(await ReadMessage(r));
+                    return;
+                }
+            }
+
+            Toasts.Success("Save successful");
+            await Load();
+        }
+        catch (HttpRequestException ex)
+        {
+            Toasts.Error($"Unable to save Roles: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            Toasts.Error($"An unexpected error occurred: {ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    // ---------- delete (dialogs, no toasts) ----------
+
+    private void DeleteRow()
+    {
+        if (selectedRow is null)
+            return;
+
+        // unsaved new row: just drop it, nothing to delete on the server
+        if (newRows.Contains(selectedRow))
+        {
+            newRows.Remove(selectedRow);
+            rows.Remove(selectedRow);
+            selectedRow = null;
+            return;
+        }
+
+        confirmDeleteMessage = "Are you sure you want to delete the selected role?";
+    }
+
+    private async Task ConfirmDelete()
+    {
+        confirmDeleteMessage = null;
+
+        if (selectedRow is null)
+            return;
+
+        isSaving = true;
+
+        try
+        {
+            using var r = await Http.DeleteAsync($"{DeleteUrl}/{selectedRow.RoleId}");
+
+            if (r.IsSuccessStatusCode)
+            {
+                deleteResultMessage = "The role was deleted successfully.";
+                await Load();
+            }
+            else
+            {
+                // e.g. "Role cannot be deleted as it is assigned to users."
+                deleteResultMessage = await ReadMessage(r);
+            }
+        }
+        catch (Exception ex)
+        {
+            deleteResultMessage = $"Unable to delete row: {ex.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}
