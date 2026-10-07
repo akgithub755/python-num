@@ -38,16 +38,20 @@
                             @foreach (var col in cols)
                             {
                                 <td class="px-3 py-2 border-r last:border-r-0">
-                                    @if (CanEdit(row, col))
+                                    @if (CanEdit(row, col) &&
+                                         (newRows.Contains(row) ||
+                                          (ReferenceEquals(editingRow, row) && editingCol == col.Title)))
                                     {
                                         <input class="w-full border px-1"
                                                value="@col.Get(row)"
                                                @oninput="e => Change(row, col, e.Value?.ToString())"
+                                               @onblur="EndEdit"
                                                @onclick:stopPropagation="true" />
                                     }
                                     else
                                     {
-                                        <div class="h-6 text-gray-500" @onclick="() => selectedRow = row">
+                                        <div class="h-6 @(CanEdit(row, col) ? "cursor-text" : "text-gray-500")"
+                                             @onclick="() => BeginEdit(row, col)">
                                             @DisplayValue(col.Get(row))
                                         </div>
                                     }
@@ -88,28 +92,31 @@
 
 @code {
     // RolesController: [Route("api/[controller]")] + the action names
-    private const string ListUrl = "/api/Roles/GetAllRoles";     // [HttpGet("GetAllRoles")]
-    private const string CreateUrl = "/api/Roles/CreateRole";    // [HttpPost("CreateRole")]
+    private const string ListUrl = "/api/Roles/GetAllRoles";      // [HttpGet("GetAllRoles")]
+    private const string SaveUrl = "/api/Roles/CreateRole";       // [HttpPost("CreateRole")] used for add AND update
     private const string DeleteUrl = "/api/Roles/DeleteRoleById"; // [HttpDelete("DeleteRoleById/{id}")]
 
     private record Col(
         string Title,
         Func<OnDemandRoleDto, string?> Get,
-        Action<OnDemandRoleDto, string?>? Set = null);
+        Action<OnDemandRoleDto, string?>? Set = null,
+        bool NewOnly = false);
 
-    // Set == null -> read-only column. There is no update endpoint, so existing rows are read-only
-    // and only new rows get edit boxes.
+    // Set == null -> read-only column, NewOnly -> editable only on newly added rows
     private readonly List<Col> cols = new()
     {
         new("RoleId", x => x.RoleId == 0 ? "(new)" : x.RoleId.ToString()),
-        new("RoleName", x => x.RoleName, (x, v) => x.RoleName = v?.Trim() ?? string.Empty),
+        new("RoleName", x => x.RoleName, (x, v) => x.RoleName = v?.Trim() ?? string.Empty, true),
         new("Description", x => x.Description, (x, v) => x.Description = v),
     };
 
     private List<OnDemandRoleDto> rows = new();
+    private Dictionary<OnDemandRoleDto, string> original = new();
     private readonly HashSet<OnDemandRoleDto> newRows = new();
 
     private OnDemandRoleDto? selectedRow;
+    private OnDemandRoleDto? editingRow;
+    private string? editingCol;
 
     private bool isLoading;
     private bool isSaving;
@@ -125,15 +132,37 @@
 
     private static string DisplayValue(string? v) => string.IsNullOrWhiteSpace(v) ? "--" : v;
 
-    // every editable cell of a new row shows an input at once, saved rows are read-only
     private bool CanEdit(OnDemandRoleDto row, Col col) =>
-        col.Set is not null && newRows.Contains(row);
+        col.Set is not null && (!col.NewOnly || newRows.Contains(row));
+
+    private bool IsModified(OnDemandRoleDto row) =>
+        !newRows.Contains(row) &&
+        original.TryGetValue(row, out var json) &&
+        json != JsonSerializer.Serialize(row);
 
     private string GetRowClass(OnDemandRoleDto row)
     {
         if (row == selectedRow) return "bg-blue-100";
         if (newRows.Contains(row)) return "bg-green-50";
+        if (IsModified(row)) return "bg-yellow-50";
         return string.Empty;
+    }
+
+    private void BeginEdit(OnDemandRoleDto row, Col col)
+    {
+        selectedRow = row;
+
+        if (!CanEdit(row, col))
+            return;
+
+        editingRow = row;
+        editingCol = col.Title;
+    }
+
+    private void EndEdit()
+    {
+        editingRow = null;
+        editingCol = null;
     }
 
     private void Change(OnDemandRoleDto row, Col col, string? value) =>
@@ -180,8 +209,10 @@
         {
             rows = await Http.GetFromJsonAsync<List<OnDemandRoleDto>>(ListUrl) ?? new();
 
+            original = rows.ToDictionary(r => r, r => JsonSerializer.Serialize(r));
             newRows.Clear();
             selectedRow = null;
+            EndEdit();
         }
         catch (HttpRequestException ex)
         {
@@ -199,7 +230,7 @@
 
     private async Task Refresh()
     {
-        if (newRows.Count > 0 &&
+        if ((newRows.Count > 0 || rows.Any(IsModified)) &&
             !await JS.InvokeAsync<bool>("confirm", "Discard unsaved changes?"))
             return;
 
@@ -219,6 +250,7 @@
         selectedRow = row;
     }
 
+    // only new rows are checked: an edited row keeps its name, so it is supposed to match itself
     private string? FindDuplicate(List<OnDemandRoleDto> creates)
     {
         var seen = new HashSet<string>(
@@ -238,8 +270,9 @@
     private async Task Save()
     {
         var creates = rows.Where(newRows.Contains).ToList();
+        var updates = rows.Where(IsModified).ToList();
 
-        if (creates.Count == 0)
+        if (creates.Count + updates.Count == 0)
         {
             Toasts.Warning("Please make changes before saving.");
             return;
@@ -262,9 +295,10 @@
 
         try
         {
-            foreach (var row in creates)
+            // new roles and edited roles use the same POST, the whole DTO is the body
+            foreach (var row in creates.Concat(updates))
             {
-                using var r = await Http.PostAsJsonAsync(CreateUrl, row);
+                using var r = await Http.PostAsJsonAsync(SaveUrl, row);
 
                 if (!r.IsSuccessStatusCode)
                 {
