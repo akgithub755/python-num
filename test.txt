@@ -1,17 +1,36 @@
-@if (newRows.Count == 0)
-{
-    <button class="btn-primary text-sm px-3 py-2" @onclick="AddRow" disabled="@(isLoading || isSaving)">Add row</button>
-}
-else
-{
-    <button class="btn-primary text-sm px-3 py-2" @onclick="CancelAdd" disabled="@(isLoading || isSaving)">Cancel</button>
-}
+<MessageDialog Title="Discard changes"
+               Message="@confirmDiscardMessage"
+               ShowCancel="true"
+               OkText="Discard"
+               OnConfirm="ConfirmDiscard"
+               OnClose="() => confirmDiscardMessage = null" />
 
 
-private void CancelAdd()
+
+
+private string? confirmDiscardMessage;
+
+private async Task Refresh()
 {
-    rows.RemoveAll(newRows.Contains);   // drops the unsaved new row(s) from the grid
-    newRows.Clear();
-    selectedRow = null;
-    EndEdit();
+    if (newRows.Count > 0 || rows.Any(IsModified))
+    {
+        confirmDiscardMessage = "You have unsaved changes. Do you want to discard them and refresh?";
+        return;
+    }
+
+    await DoRefresh();
+}
+
+private async Task ConfirmDiscard()
+{
+    confirmDiscardMessage = null;
+    await DoRefresh();
+}
+
+private async Task DoRefresh()
+{
+    await Load();
+
+    if (errorMessage is null)
+        Toasts.Success("Purchase Attributes refreshed successfully.");   // keep this file's existing text
 }
