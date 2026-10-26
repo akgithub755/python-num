@@ -12,7 +12,7 @@
 
     @if (isLoading)
     {
-        <div class="p-4 text-sm">Loading recap contour mapping...</div>
+        <div class="p-4 text-sm">Loading scheduler programs...</div>
     }
     else if (!string.IsNullOrWhiteSpace(errorMessage))
     {
@@ -27,7 +27,7 @@
                         @foreach (var col in cols)
                         {
                             <th class="text-left px-3 py-2 font-medium border-r last:border-r-0"
-                                style="position: sticky; top: 0; background: #f9fafb; white-space: nowrap;">@col.Title</th>
+                                style="position: sticky; top: 0; background: #f9fafb;">@col.Title</th>
                         }
                     </tr>
                 </thead>
@@ -43,8 +43,6 @@
                                           (ReferenceEquals(editingRow, row) && editingCol == col.Title)))
                                     {
                                         <input class="w-full border px-1"
-                                               style="min-width: 8rem;"
-                                               type="@col.InputType"
                                                value="@col.Get(row)"
                                                @oninput="e => Change(row, col, e.Value?.ToString())"
                                                @onblur="EndEdit"
@@ -54,7 +52,7 @@
                                     {
                                         <div class="h-6 @(CanEdit(row, col) ? "cursor-text" : "text-gray-500")"
                                              @onclick="() => BeginEdit(row, col)">
-                                            @ShowValue(row, col)
+                                            @DisplayValue(col.Get(row))
                                         </div>
                                     }
                                 </td>
@@ -107,53 +105,35 @@
                OnClose="() => confirmDiscardMessage = null" />
 
 @code {
-    private const string Api = "/api/RecapContourMapping";
-    private const string ListUrl = "/api/RecapContourMapping/GetRecapContours";   // returns every row, no paging
+    private const string Api = "/api/Schedulerprograms";
+    private const string ListUrl = "/api/Schedulerprograms/GetShedulerPrograms";   // returns every row, no paging
 
     private record Col(
         string Title,
-        Func<RecapContourMappingDto, string?> Get,
-        Action<RecapContourMappingDto, string?>? Set = null,
-        bool NewOnly = false,
-        string InputType = "text");
+        Func<ShedulerProgramsResponses, string?> Get,
+        Action<ShedulerProgramsResponses, string?> Set,
+        bool NewOnly = false);
 
-    // Set == null -> read-only column, NewOnly -> editable only on newly added rows.
-    // Mapping + Client are the key, so they are locked on saved rows.
-    // The four user columns at the end stay editable on saved rows, like the original screen.
+    // NewOnly -> editable only on newly added rows.
+    // Programcode is the primary key, so it is locked on saved rows.
     private readonly List<Col> cols = new()
     {
-        new("Mapping", x => x.Mapping,
-            (x, v) => x.Mapping = v?.Trim() ?? string.Empty, true),
-        new("Client", x => x.Client,
-            (x, v) => x.Client = v?.Trim() ?? string.Empty, true),
-        new("Libellé", x => x.Libelle,
-            (x, v) => x.Libelle = v, true),
-        new("Evol", x => x.Evol?.ToString(),
-            (x, v) => x.Evol = int.TryParse(v, out var n) ? n : null, true, "number"),
-        new("Date dernier lancement", x => x.DateDernierLancement?.ToString("yyyy-MM-ddTHH:mm"),
-            (x, v) => x.DateDernierLancement = DateTime.TryParse(v, out var d) ? d : null, true, "datetime-local"),
-        new("Check répart. evol", x => x.CheckRepartEvol,
-            (x, v) => x.CheckRepartEvol = v, true),
-        new("Check nouveau croisement histo", x => x.CheckNewCroisementHisto,
-            (x, v) => x.CheckNewCroisementHisto = v, true),
-        new("Check nouveau croisement EAN", x => x.CheckNewCroisementNewEan,
-            (x, v) => x.CheckNewCroisementNewEan = v, true),
-        new("Date validation user", x => x.DateValidationUser,
-            (x, v) => x.DateValidationUser = v),
-        new("Nom user", x => x.NomUser,
-            (x, v) => x.NomUser = v),
-        new("Commentaire user", x => x.CommentaireUser,
-            (x, v) => x.CommentaireUser = v),
-        new("Temps mapping", x => x.TempsMapping,
-            (x, v) => x.TempsMapping = v),
+        new("Programcode", x => x.Programcode,
+            (x, v) => x.Programcode = v?.Trim() ?? string.Empty, true),
+        new("Programname", x => x.Programname,
+            (x, v) => x.Programname = v ?? string.Empty),
+        new("Programdescription", x => x.Programdescription,
+            (x, v) => x.Programdescription = v ?? string.Empty),
+        new("Pythonversion", x => x.Pythonversion,
+            (x, v) => x.Pythonversion = v ?? string.Empty),
     };
 
-    private List<RecapContourMappingDto> rows = new();
-    private Dictionary<RecapContourMappingDto, string> original = new();
-    private readonly HashSet<RecapContourMappingDto> newRows = new();
+    private List<ShedulerProgramsResponses> rows = new();
+    private Dictionary<ShedulerProgramsResponses, string> original = new();
+    private readonly HashSet<ShedulerProgramsResponses> newRows = new();
 
-    private RecapContourMappingDto? selectedRow;
-    private RecapContourMappingDto? editingRow;
+    private ShedulerProgramsResponses? selectedRow;
+    private ShedulerProgramsResponses? editingRow;
     private string? editingCol;
 
     private bool isLoading;
@@ -171,25 +151,15 @@
 
     private static string DisplayValue(string? v) => string.IsNullOrWhiteSpace(v) ? "--" : v;
 
-    private static string ShowValue(RecapContourMappingDto row, Col col)
-    {
-        var v = col.Get(row);
+    private bool CanEdit(ShedulerProgramsResponses row, Col col) =>
+        !col.NewOnly || newRows.Contains(row);
 
-        if (col.InputType == "datetime-local")
-            v = v?.Replace('T', ' ');
-
-        return DisplayValue(v);
-    }
-
-    private bool CanEdit(RecapContourMappingDto row, Col col) =>
-        col.Set is not null && (!col.NewOnly || newRows.Contains(row));
-
-    private bool IsModified(RecapContourMappingDto row) =>
+    private bool IsModified(ShedulerProgramsResponses row) =>
         !newRows.Contains(row) &&
         original.TryGetValue(row, out var json) &&
         json != JsonSerializer.Serialize(row);
 
-    private string GetRowClass(RecapContourMappingDto row)
+    private string GetRowClass(ShedulerProgramsResponses row)
     {
         if (row == selectedRow) return "bg-blue-100";
         if (newRows.Contains(row)) return "bg-green-50";
@@ -197,7 +167,7 @@
         return string.Empty;
     }
 
-    private void BeginEdit(RecapContourMappingDto row, Col col)
+    private void BeginEdit(ShedulerProgramsResponses row, Col col)
     {
         selectedRow = row;
 
@@ -214,12 +184,11 @@
         editingCol = null;
     }
 
-    private void Change(RecapContourMappingDto row, Col col, string? value) =>
-        col.Set!(row, string.IsNullOrWhiteSpace(value) ? null : value);
+    private void Change(ShedulerProgramsResponses row, Col col, string? value) =>
+        col.Set(row, string.IsNullOrWhiteSpace(value) ? null : value);
 
-    // two-part key in the URL: /{mapping}/{client}
-    private static string KeyUrl(RecapContourMappingDto row) =>
-        $"{Api}/{Uri.EscapeDataString(row.Mapping)}/{Uri.EscapeDataString(row.Client)}";
+    private static string KeyUrl(ShedulerProgramsResponses row) =>
+        $"{Api}/{Uri.EscapeDataString(row.Programcode)}";
 
     // shows only the message text, never the raw JSON
     private static async Task<string> ReadMessage(HttpResponseMessage r)
@@ -260,7 +229,7 @@
 
         try
         {
-            rows = await Http.GetFromJsonAsync<List<RecapContourMappingDto>>(ListUrl) ?? new();
+            rows = await Http.GetFromJsonAsync<List<ShedulerProgramsResponses>>(ListUrl) ?? new();
 
             original = rows.ToDictionary(r => r, r => JsonSerializer.Serialize(r));
             newRows.Clear();
@@ -269,7 +238,7 @@
         }
         catch (HttpRequestException ex)
         {
-            errorMessage = $"Unable to load Recap Contour data: {ex.Message}";
+            errorMessage = $"Unable to load Scheduler Programs data: {ex.Message}";
         }
         catch (Exception ex)
         {
@@ -303,19 +272,14 @@
         await Load();
 
         if (errorMessage is null)
-            Toasts.Success("Recap Contour refreshed successfully.");
+            Toasts.Success("Scheduler Programs refreshed successfully.");
     }
 
     // ---------- add / cancel / save ----------
 
     private void AddRow()
     {
-        var row = new RecapContourMappingDto
-        {
-            Mapping = string.Empty,
-            Client = string.Empty
-        };
-
+        var row = new ShedulerProgramsResponses();
         newRows.Add(row);
         rows.Insert(0, row);
         selectedRow = row;
@@ -329,21 +293,18 @@
         EndEdit();
     }
 
-    // the key is the combination of Mapping and Client
-    private string? FindDuplicate(List<RecapContourMappingDto> creates)
+    private string? FindDuplicate(List<ShedulerProgramsResponses> creates)
     {
-        var seen = rows.Where(x => !newRows.Contains(x))
-                       .Select(x => (x.Mapping.Trim().ToLowerInvariant(), x.Client.Trim().ToLowerInvariant()))
-                       .ToHashSet();
+        var seen = new HashSet<string>(
+            rows.Where(x => !newRows.Contains(x)).Select(x => x.Programcode.Trim()),
+            StringComparer.OrdinalIgnoreCase);
 
         foreach (var r in creates)
         {
-            var mapping = r.Mapping.Trim();
-            var client = r.Client.Trim();
+            var code = r.Programcode.Trim();
 
-            if (!seen.Add((mapping.ToLowerInvariant(), client.ToLowerInvariant())))
-                return $"The combination Mapping '{mapping}' and Client '{client}' " +
-                       "is already present in the database.";
+            if (!seen.Add(code))
+                return $"The program code '{code}' is already present in the database.";
         }
 
         return null;
@@ -360,9 +321,9 @@
             return;
         }
 
-        if (creates.Any(r => string.IsNullOrWhiteSpace(r.Mapping) || string.IsNullOrWhiteSpace(r.Client)))
+        if (creates.Any(r => string.IsNullOrWhiteSpace(r.Programcode)))
         {
-            Toasts.Warning("Mapping and Client are required for new rows.");
+            Toasts.Warning("Programcode is required for new rows.");
             return;
         }
 
@@ -394,7 +355,7 @@
         }
         catch (HttpRequestException ex)
         {
-            Toasts.Error($"Unable to save Recap Contour: {ex.Message}");
+            Toasts.Error($"Unable to save Scheduler Programs: {ex.Message}");
         }
         catch (Exception ex)
         {
