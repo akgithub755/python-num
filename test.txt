@@ -1,430 +1,309 @@
-@namespace OnDemandLaunchApp.Pages.Table_Management.Tables
-@using System.Net.Http.Json
-@using System.Text.Json
-@using Infrastructure.Models.Responses
-@using OnDemandLaunchApp.Services
-@inject ToastService Toasts
-@* Remove the next two lines if _Imports.razor already injects them *@
-@inject HttpClient Http
-@inject IJSRuntime JS
+@using Microsoft.AspNetCore.Components.QuickGrid
 
-<div class="border rounded shadow-sm overflow-hidden flex flex-col">
-
-    @if (isLoading)
-    {
-        <div class="p-4 text-sm">Loading scheduler programs...</div>
-    }
-    else if (!string.IsNullOrWhiteSpace(errorMessage))
-    {
-        <div class="p-4 text-sm alert">@errorMessage</div>
-    }
-    else
-    {
-        <div style="max-height: 65vh; overflow: auto;">
-            <table class="w-full text-sm border-collapse">
-                <thead>
-                    <tr class="bg-gray-50 border-b">
-                        @foreach (var col in cols)
-                        {
-                            <th class="text-left px-3 py-2 font-medium border-r last:border-r-0"
-                                style="position: sticky; top: 0; background: #f9fafb;">@col.Title</th>
-                        }
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var row in rows)
-                    {
-                        <tr class="border-b hover:bg-gray-50 @GetRowClass(row)" @onclick="() => selectedRow = row">
-                            @foreach (var col in cols)
-                            {
-                                <td class="px-3 py-2 border-r last:border-r-0">
-                                    @if (CanEdit(row, col) &&
-                                         (newRows.Contains(row) ||
-                                          (ReferenceEquals(editingRow, row) && editingCol == col.Title)))
-                                    {
-                                        <input class="w-full border px-1"
-                                               value="@col.Get(row)"
-                                               @oninput="e => Change(row, col, e.Value?.ToString())"
-                                               @onblur="EndEdit"
-                                               @onclick:stopPropagation="true" />
-                                    }
-                                    else
-                                    {
-                                        <div class="h-6 @(CanEdit(row, col) ? "cursor-text" : "text-gray-500")"
-                                             @onclick="() => BeginEdit(row, col)">
-                                            @DisplayValue(col.Get(row))
-                                        </div>
-                                    }
-                                </td>
-                            }
-                        </tr>
-                    }
-                    @if (rows.Count == 0)
-                    {
-                        <tr><td class="px-3 py-3 text-gray-400" colspan="@cols.Count">No data found.</td></tr>
-                    }
-                </tbody>
-            </table>
+@* Parameter set *@
+<div class="p-2 border-b">
+    <h5>Parameter set</h5>
+    <div class="flex items-center gap-3">
+        <label>Parameter set name:</label>
+        <input type="text" class="text-box w-full" @bind="parameterSetName" @bind:event="oninput" />
+        <div class="flex justify-end gap-2">
+            <button class="btn-primary" @onclick="NewParameterSet">New</button>
+            <button class="btn-primary" @onclick="LoadParameterSet">Load...</button>
+            <button class="btn-primary" @onclick="SaveParameterSet">Save as...</button>
         </div>
-    }
-
-    <div class="flex gap-2 justify-start items-center p-3 border-t bg-gray-50">
-        <button class="btn-primary text-sm px-3 py-2" @onclick="Refresh" disabled="@(isLoading || isSaving)">Refresh</button>
-        @if (newRows.Count == 0)
-        {
-            <button class="btn-primary text-sm px-3 py-2" @onclick="AddRow" disabled="@(isLoading || isSaving)">Add row</button>
-        }
-        else
-        {
-            <button class="btn-primary text-sm px-3 py-2" @onclick="CancelAdd" disabled="@(isLoading || isSaving)">Cancel</button>
-        }
-        <button class="btn-primary text-sm px-3 py-2" @onclick="Save" disabled="@(isLoading || isSaving)">@(isSaving ? "Saving..." : "Save")</button>
-        <button class="btn-primary text-sm px-3 py-2" @onclick="DeleteRow" disabled="@(isLoading || isSaving || selectedRow is null)">Delete</button>
-        <span class="text-xs text-gray-500 ml-2">@rows.Count row(s)</span>
+        <label>Language:</label>
+        <select class="custom-dropdown" @bind="language">
+            <option value="English">English</option>
+            <option value="Français">Français</option>
+        </select>
     </div>
 </div>
 
-<MessageDialog Message="@dialogMessage" OnClose="() => dialogMessage = null" />
+@* Periods *@
+<div class="p-2 border-b">
+    <h5>Periods</h5>
+    <div class="flex items-center gap-3">
+        <label>Start period:</label>
+        <select class="custom-dropdown" @bind="startPeriod">
+            @foreach (var p in periods)
+            {
+                <option value="@p">@p</option>
+            }
+        </select>
 
-<MessageDialog Title="Confirm delete"
-               Message="@confirmDeleteMessage"
-               ShowCancel="true"
-               OkText="Delete"
-               OnConfirm="ConfirmDelete"
-               OnClose="() => confirmDeleteMessage = null" />
+        <label>End period:</label>
+        <select class="custom-dropdown" @bind="endPeriod">
+            @foreach (var p in periods)
+            {
+                <option value="@p">@p</option>
+            }
+        </select>
 
-<MessageDialog Title="Delete"
-               Message="@deleteResultMessage"
-               OnClose="() => deleteResultMessage = null" />
+        <label>History periods:</label>
+        <input type="number" min="0" class="text-box" @bind="historyPeriods" />
+        <span>(recalculates the periods from the current period; empty = manual choice)</span>
+    </div>
+</div>
 
-<MessageDialog Title="Discard changes"
-               Message="@confirmDiscardMessage"
-               ShowCancel="true"
-               OkText="Discard"
-               OnConfirm="ConfirmDiscard"
-               OnClose="() => confirmDiscardMessage = null" />
+@* Sources / NG Type / Retailers *@
+<div class="grid grid-cols-3 gap-3 p-2">
+
+    <div>
+        <h5>Sources</h5>
+        <label><input type="checkbox" @bind="AllSourcesChecked" /> Check / uncheck all</label>
+        <QuickGrid Items="Sources.AsQueryable()" Class="customtable">
+            <TemplateColumn Title="" Context="s">
+                <input type="checkbox" @bind="s.Checked" />
+            </TemplateColumn>
+            <PropertyColumn Property="s => s.Code" Title="Code" />
+            <PropertyColumn Property="s => s.Name" Title="Name" />
+        </QuickGrid>
+    </div>
+
+    <div>
+        <h5>NG Type</h5>
+        <label><input type="checkbox" @bind="AllNgTypesChecked" /> Check / uncheck all</label>
+        <QuickGrid Items="NgTypes.AsQueryable()" Class="customtable">
+            <TemplateColumn Title="" Context="n">
+                <input type="checkbox" @bind="n.Checked" />
+            </TemplateColumn>
+            <PropertyColumn Property="n => n.Name" Title="NG Type" />
+        </QuickGrid>
+    </div>
+
+    <div>
+        <h5>Retailers</h5>
+        <label>Click a retailer to see its values</label>
+        <QuickGrid Items="Retailers.AsQueryable()" Class="customtable">
+            <TemplateColumn Title="" Context="r">
+                <input type="checkbox" @bind="r.Checked" />
+            </TemplateColumn>
+            <TemplateColumn Title="Retailer" Context="r">
+                <a href="javascript:void(0)" @onclick="() => SelectRetailer(r)">
+                    @if (r.Name == selectedRetailer)
+                    {
+                        <b>@r.Name</b>
+                    }
+                    else
+                    {
+                        @r.Name
+                    }
+                </a>
+            </TemplateColumn>
+        </QuickGrid>
+    </div>
+</div>
+
+@* Values *@
+<div class="p-2 border-b">
+    <h5>Values (click a retailer)</h5>
+    <div class="flex items-center gap-3">
+        <label><input type="checkbox" @bind="AllValuesChecked" /> Check / uncheck all</label>
+        <label><input type="checkbox" @bind="checkedValuesOnly" /> Checked values only</label>
+    </div>
+    <QuickGrid Items="DisplayedValues.AsQueryable()" Pagination="valuesPagination" Class="customtable">
+        <TemplateColumn Title="" Context="v">
+            <input type="checkbox" @bind="v.Checked" />
+        </TemplateColumn>
+        <PropertyColumn Property="v => v.Name" Title="Value" />
+        <PropertyColumn Property="v => v.CheckedShops" Title="Checked shops" />
+    </QuickGrid>
+    <Paginator State="valuesPagination" />
+</div>
+
+@* Shops *@
+<div class="p-2">
+    <h5>Shops (individual selection, outside values)</h5>
+    <p><b>All shops: @DisplayedShops.Count displayed, @CheckedShopCount checked - @(CheckedShopCount == 0 ? "no individual shop filter" : "individual shop filter active")</b></p>
+
+    <div class="flex items-center gap-3">
+        <label>Search:</label>
+        <input type="search" class="search-box w-full" placeholder="Shop name or code"
+               @bind="ShopSearch" @bind:event="oninput" />
+        <button class="btn-primary" @onclick="ShowAllShops">Show all shops</button>
+    </div>
+
+    <div class="flex items-center gap-3 mt-2">
+        <label><input type="checkbox" @bind="AllShownShopsChecked" /> Check / uncheck all (displayed rows)</label>
+        <label><input type="checkbox" @bind="checkedShopsOnly" /> Checked shops only</label>
+    </div>
+
+    <QuickGrid Items="DisplayedShops.AsQueryable()" Pagination="shopsPagination" Class="customtable">
+        <TemplateColumn Title="" Context="s">
+            <input type="checkbox" @bind="s.Checked" />
+        </TemplateColumn>
+        <PropertyColumn Property="s => s.Code" Title="Shop code" />
+        <PropertyColumn Property="s => s.Name" Title="Shop name" />
+    </QuickGrid>
+    <Paginator State="shopsPagination" />
+</div>
 
 @code {
-    private const string Api = "/api/Schedulerprograms";
-    private const string ListUrl = "/api/Schedulerprograms/GetShedulerPrograms";   // returns every row, no paging
+    // ---------- State ----------
+    private string parameterSetName = "";
+    private string language = "English";
+    private string startPeriod = "202608";
+    private string endPeriod = "202612";
+    private int? historyPeriods;
+    private string? selectedRetailer;
+    private bool checkedValuesOnly;
+    private bool checkedShopsOnly;
 
-    private record Col(
-        string Title,
-        Func<ShedulerProgramsResponses, string?> Get,
-        Action<ShedulerProgramsResponses, string?> Set,
-        bool NewOnly = false);
+    private PaginationState valuesPagination = new() { ItemsPerPage = 10 };
+    private PaginationState shopsPagination = new() { ItemsPerPage = 10 };
 
-    // NewOnly -> editable only on newly added rows.
-    // Programcode is the primary key, so it is locked on saved rows.
-    private readonly List<Col> cols = new()
+    private readonly List<string> periods = Enumerable.Range(2025, 3)
+        .SelectMany(y => Enumerable.Range(1, 12).Select(m => $"{y}{m:00}")).ToList();
+
+    private List<SourceItem> Sources = new();
+    private List<NamedItem> NgTypes = new();
+    private List<NamedItem> Retailers = new();
+    private List<ShopItem> Shops = new();
+    private Dictionary<string, List<ValueItem>> ValuesByRetailer = new();
+
+    private string _shopSearch = "";
+    private string ShopSearch
     {
-        new("Programcode", x => x.Programcode,
-            (x, v) => x.Programcode = v?.Trim() ?? string.Empty, true),
-        new("Programname", x => x.Programname,
-            (x, v) => x.Programname = v ?? string.Empty),
-        new("Programdescription", x => x.Programdescription,
-            (x, v) => x.Programdescription = v ?? string.Empty),
-        new("Pythonversion", x => x.Pythonversion,
-            (x, v) => x.Pythonversion = v ?? string.Empty),
-    };
-
-    private List<ShedulerProgramsResponses> rows = new();
-    private Dictionary<ShedulerProgramsResponses, string> original = new();
-    private readonly HashSet<ShedulerProgramsResponses> newRows = new();
-
-    private ShedulerProgramsResponses? selectedRow;
-    private ShedulerProgramsResponses? editingRow;
-    private string? editingCol;
-
-    private bool isLoading;
-    private bool isSaving;
-    private string? errorMessage;
-
-    private string? dialogMessage;
-    private string? confirmDeleteMessage;
-    private string? deleteResultMessage;
-    private string? confirmDiscardMessage;
-
-    protected override async Task OnInitializedAsync() => await Load();
-
-    // ---------- helpers ----------
-
-    private static string DisplayValue(string? v) => string.IsNullOrWhiteSpace(v) ? "--" : v;
-
-    private bool CanEdit(ShedulerProgramsResponses row, Col col) =>
-        !col.NewOnly || newRows.Contains(row);
-
-    private bool IsModified(ShedulerProgramsResponses row) =>
-        !newRows.Contains(row) &&
-        original.TryGetValue(row, out var json) &&
-        json != JsonSerializer.Serialize(row);
-
-    private string GetRowClass(ShedulerProgramsResponses row)
-    {
-        if (row == selectedRow) return "bg-blue-100";
-        if (newRows.Contains(row)) return "bg-green-50";
-        if (IsModified(row)) return "bg-yellow-50";
-        return string.Empty;
-    }
-
-    private void BeginEdit(ShedulerProgramsResponses row, Col col)
-    {
-        selectedRow = row;
-
-        if (!CanEdit(row, col))
-            return;
-
-        editingRow = row;
-        editingCol = col.Title;
-    }
-
-    private void EndEdit()
-    {
-        editingRow = null;
-        editingCol = null;
-    }
-
-    private void Change(ShedulerProgramsResponses row, Col col, string? value) =>
-        col.Set(row, string.IsNullOrWhiteSpace(value) ? null : value);
-
-    private static string KeyUrl(ShedulerProgramsResponses row) =>
-        $"{Api}/{Uri.EscapeDataString(row.Programcode)}";
-
-    // shows only the message text, never the raw JSON
-    private static async Task<string> ReadMessage(HttpResponseMessage r)
-    {
-        var body = await r.Content.ReadAsStringAsync();
-
-        try
+        get => _shopSearch;
+        set
         {
-            using var doc = JsonDocument.Parse(body);
-
-            if (doc.RootElement.ValueKind == JsonValueKind.String)
-                return doc.RootElement.GetString() ?? body;
-
-            if (doc.RootElement.ValueKind == JsonValueKind.Object)
-            {
-                foreach (var p in doc.RootElement.EnumerateObject())
-                    if (p.Name.Equals("message", StringComparison.OrdinalIgnoreCase) &&
-                        p.Value.ValueKind == JsonValueKind.String)
-                        return p.Value.GetString() ?? body;
-            }
-        }
-        catch (Exception)
-        {
-            // body was plain text, show it as-is
-        }
-
-        return string.IsNullOrWhiteSpace(body)
-            ? $"Request failed. HTTP {(int)r.StatusCode}"
-            : body;
-    }
-
-    // ---------- load / refresh ----------
-
-    private async Task Load()
-    {
-        isLoading = true;
-        errorMessage = null;
-
-        try
-        {
-            rows = await Http.GetFromJsonAsync<List<ShedulerProgramsResponses>>(ListUrl) ?? new();
-
-            original = rows.ToDictionary(r => r, r => JsonSerializer.Serialize(r));
-            newRows.Clear();
-            selectedRow = null;
-            EndEdit();
-        }
-        catch (HttpRequestException ex)
-        {
-            errorMessage = $"Unable to load Scheduler Programs data: {ex.Message}";
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"An unexpected error occurred: {ex.Message}";
-        }
-        finally
-        {
-            isLoading = false;
+            _shopSearch = value;
+            _ = shopsPagination.SetCurrentPageIndexAsync(0);
         }
     }
 
-    private async Task Refresh()
+    // ---------- Init (replace seed data with your API calls) ----------
+    protected override void OnInitialized()
     {
-        if (newRows.Count > 0 || rows.Any(IsModified))
+        Sources = new()
         {
-            confirmDiscardMessage = "You have unsaved changes. Do you want to discard them and refresh?";
-            return;
-        }
+            new(6, "Global Park"), new(7, "Clicker"), new(8, "H14"), new(18, "OOH - Nomad ..."),
+            new(19, "Consoscan (ach..."), new(23, "SIMBA"), new(24, "Aurora")
+        };
+        Sources.ForEach(s => s.Checked = true);
 
-        await DoRefresh();
+        NgTypes = new[] { "ALIM", "HBB/ENT", "OOH", "OTC", "TEXTILE", "VRAC", "G" }
+            .Select(n => new NamedItem { Name = n }).ToList();
+
+        Retailers = new[] { "ATT_CIRC_IRI_SEG1", "ATT_CIRC_MAGASINS_N4", "ATT_CIRC_SPECIALISE_N7",
+                            "ATT_DETAIL_NOM_ENSEIGNES", "ATT_ENSEIGNES_FLASH_L76G", "ATT_ENSEIGNES_SPE",
+                            "ATT_ENSEIGNES_Z736", "ATT_HB_CIRCUITS" }
+            .Select(n => new NamedItem { Name = n }).ToList();
+
+        // TODO: load values for the clicked retailer from your API
+        foreach (var r in Retailers)
+            ValuesByRetailer[r.Name] = new() { new() { Name = "Value A" }, new() { Name = "Value B" } };
+
+        // TODO: load the 1670 shops from your API
+        Shops = new()
+        {
+            new(1339, "1 jour 1 vin"), new(1338, "10 doigts"), new(1337, "1001pharmacies"),
+            new(1865, "123 consommables"), new(1762, "231 East Street"), new(980, "3 Suisses"),
+            new(433, "3 Suisses Catalogue"), new(824, "3Suisses Internet"), new(434, "3SUISSES MAGASIN"),
+            new(435, "8 à Huit"), new(787, "A domicile"), new(773, "A L étranger")
+        };
     }
 
-    private async Task ConfirmDiscard()
+    // ---------- Check / uncheck all ----------
+    private bool AllSourcesChecked
     {
-        confirmDiscardMessage = null;
-        await DoRefresh();
+        get => Sources.Count > 0 && Sources.All(x => x.Checked);
+        set => Sources.ForEach(x => x.Checked = value);
     }
 
-    private async Task DoRefresh()
+    private bool AllNgTypesChecked
     {
-        await Load();
-
-        if (errorMessage is null)
-            Toasts.Success("Scheduler Programs refreshed successfully.");
+        get => NgTypes.Count > 0 && NgTypes.All(x => x.Checked);
+        set => NgTypes.ForEach(x => x.Checked = value);
     }
 
-    // ---------- add / cancel / save ----------
-
-    private void AddRow()
+    private bool AllValuesChecked
     {
-        var row = new ShedulerProgramsResponses();
-        newRows.Add(row);
-        rows.Insert(0, row);
-        selectedRow = row;
+        get => DisplayedValues.Count > 0 && DisplayedValues.All(x => x.Checked);
+        set => DisplayedValues.ForEach(x => x.Checked = value);
     }
 
-    private void CancelAdd()
+    private bool AllShownShopsChecked
     {
-        rows.RemoveAll(newRows.Contains);   // drops the unsaved new row(s) from the grid
-        newRows.Clear();
-        selectedRow = null;
-        EndEdit();
+        get => DisplayedShops.Count > 0 && DisplayedShops.All(x => x.Checked);
+        set => DisplayedShops.ForEach(x => x.Checked = value);
     }
 
-    private string? FindDuplicate(List<ShedulerProgramsResponses> creates)
+    // ---------- Derived lists ----------
+    private List<ValueItem> DisplayedValues
     {
-        var seen = new HashSet<string>(
-            rows.Where(x => !newRows.Contains(x)).Select(x => x.Programcode.Trim()),
-            StringComparer.OrdinalIgnoreCase);
-
-        foreach (var r in creates)
+        get
         {
-            var code = r.Programcode.Trim();
-
-            if (!seen.Add(code))
-                return $"The program code '{code}' is already present in the database.";
-        }
-
-        return null;
-    }
-
-    private async Task Save()
-    {
-        var creates = rows.Where(newRows.Contains).ToList();
-        var updates = rows.Where(IsModified).ToList();
-
-        if (creates.Count + updates.Count == 0)
-        {
-            Toasts.Warning("Please make changes before saving.");
-            return;
-        }
-
-        if (creates.Any(r => string.IsNullOrWhiteSpace(r.Programcode)))
-        {
-            Toasts.Warning("Programcode is required for new rows.");
-            return;
-        }
-
-        var duplicate = FindDuplicate(creates);
-        if (duplicate is not null)
-        {
-            dialogMessage = duplicate;
-            return;
-        }
-
-        isSaving = true;
-
-        try
-        {
-            foreach (var row in creates)
-            {
-                using var r = await Http.PostAsJsonAsync(Api, row);   // POST: new rows
-                if (!await Check(r)) return;
-            }
-
-            foreach (var row in updates)
-            {
-                using var r = await Http.PutAsJsonAsync(KeyUrl(row), row);   // PUT: edited rows
-                if (!await Check(r)) return;
-            }
-
-            Toasts.Success("Save successful");
-            await Load();
-        }
-        catch (HttpRequestException ex)
-        {
-            Toasts.Error($"Unable to save Scheduler Programs: {ex.Message}");
-        }
-        catch (Exception ex)
-        {
-            Toasts.Error($"An unexpected error occurred: {ex.Message}");
-        }
-        finally
-        {
-            isSaving = false;
+            if (selectedRetailer is null || !ValuesByRetailer.TryGetValue(selectedRetailer, out var list))
+                return new();
+            return checkedValuesOnly ? list.Where(v => v.Checked).ToList() : list;
         }
     }
 
-    // ---------- delete (dialogs, no toasts) ----------
+    private List<ShopItem> DisplayedShops =>
+        Shops.Where(s => (!checkedShopsOnly || s.Checked) &&
+                         (string.IsNullOrWhiteSpace(ShopSearch) ||
+                          s.Name.Contains(ShopSearch, StringComparison.OrdinalIgnoreCase) ||
+                          s.Code.ToString().Contains(ShopSearch)))
+             .ToList();
 
-    private void DeleteRow()
+    private int CheckedShopCount => Shops.Count(s => s.Checked);
+
+    // ---------- Actions ----------
+    private void SelectRetailer(NamedItem r)
     {
-        if (selectedRow is null)
-            return;
-
-        // unsaved new row: just drop it, nothing to delete on the server
-        if (newRows.Contains(selectedRow))
-        {
-            newRows.Remove(selectedRow);
-            rows.Remove(selectedRow);
-            selectedRow = null;
-            return;
-        }
-
-        confirmDeleteMessage = "Are you sure you want to delete the selected row?";
+        selectedRetailer = r.Name;
+        _ = valuesPagination.SetCurrentPageIndexAsync(0);
     }
 
-    private async Task ConfirmDelete()
+    private void ShowAllShops()
     {
-        confirmDeleteMessage = null;
-
-        if (selectedRow is null)
-            return;
-
-        isSaving = true;
-
-        try
-        {
-            using var r = await Http.DeleteAsync(KeyUrl(selectedRow));
-
-            if (r.IsSuccessStatusCode)
-            {
-                deleteResultMessage = "The row was deleted successfully.";
-                await Load();
-            }
-            else
-            {
-                deleteResultMessage = await ReadMessage(r);
-            }
-        }
-        catch (Exception ex)
-        {
-            deleteResultMessage = $"Unable to delete row: {ex.Message}";
-        }
-        finally
-        {
-            isSaving = false;
-        }
+        ShopSearch = "";
+        checkedShopsOnly = false;
     }
 
-    private async Task<bool> Check(HttpResponseMessage response)
+    private void NewParameterSet()
     {
-        if (response.IsSuccessStatusCode)
-            return true;
+        parameterSetName = "";
+        historyPeriods = null;
+        Sources.ForEach(x => x.Checked = true);
+        NgTypes.ForEach(x => x.Checked = false);
+        Retailers.ForEach(x => x.Checked = false);
+        Shops.ForEach(x => x.Checked = false);
+        foreach (var list in ValuesByRetailer.Values) list.ForEach(v => v.Checked = false);
+        selectedRetailer = null;
+    }
 
-        Toasts.Error(await ReadMessage(response));
-        return false;
+    private void LoadParameterSet() { /* TODO */ }
+    private void SaveParameterSet() { /* TODO */ }
+
+    // ---------- Models ----------
+    public class SourceItem
+    {
+        public SourceItem(int code, string name) { Code = code; Name = name; }
+        public int Code { get; set; }
+        public string Name { get; set; }
+        public bool Checked { get; set; }
+    }
+
+    public class NamedItem
+    {
+        public string Name { get; set; } = "";
+        public bool Checked { get; set; }
+    }
+
+    public class ValueItem
+    {
+        public string Name { get; set; } = "";
+        public bool Checked { get; set; }
+        public int CheckedShops { get; set; }
+    }
+
+    public class ShopItem
+    {
+        public ShopItem(int code, string name) { Code = code; Name = name; }
+        public int Code { get; set; }
+        public string Name { get; set; }
+        public bool Checked { get; set; }
     }
 }
