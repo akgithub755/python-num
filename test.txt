@@ -1,120 +1,46 @@
+.processes-dropdown {
+    width: 340px;
+    max-height: min(72vh, 620px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;              /* dropdown itself no longer scrolls */
+    padding: 10px;
+    border-radius: 0 0 14px 14px;
+    border-color: #dce8eb;
+    box-shadow: 0 18px 42px rgba(15, 43, 52, 0.16), 0 3px 9px rgba(15, 43, 52, 0.06);
+}
 
-import streamlit as st
-import logging
-import os
+.dropdown-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 12px 14px;
+    color: #004a52;
+    font-size: 14px;
+    font-weight: 600;
+    flex-shrink: 0;                /* stays fixed at top */
+}
 
-from agent import create_banking_agent, ask_agent
+.dropdown-header i {
+    color: #03acba;
+}
 
-os.makedirs("logs", exist_ok=True)
+.dropdown-divider {
+    height: 1px;
+    background: #e5e7eb;
+    margin: 2px 8px 10px;
+    flex-shrink: 0;
+}
 
-logging.basicConfig(
-    filename="logs/agent.log",
-    level=logging.INFO
-)
+.program-list {
+    padding: 2px 2px 4px;
+    flex: 1 1 auto;
+    min-height: 0;                 /* required so flex child can shrink and scroll */
+    overflow-y: auto;              /* only this area scrolls */
+    scrollbar-width: thin;
+    scrollbar-color: #b7dfe2 transparent;
+}
 
-st.set_page_config(
-    page_title="Banking Intelligence AI",
-    page_icon="🏦",
-    layout="wide"
-)
-
-st.title("🏦 Banking Intelligence Agent")
-
-st.caption(
-    "AI-powered customer analytics and transaction risk intelligence"
-)
-
-@st.cache_resource
-def load_agent():
-    return create_banking_agent()
-
-
-try:
-    agent = load_agent()
-except Exception as e:
-    st.error(f"Unable to initialize AI agent: {e}")
-    st.stop()
-
-
-# Sidebar
-with st.sidebar:
-
-    st.header("Banking AI")
-
-    st.success("Agent initialized")
-
-    st.divider()
-
-    st.subheader("Example questions")
-
-    examples = [
-        "Give me an overall transaction risk summary",
-        "Find transactions above 100000",
-        "Which cities have the highest fraud rates?",
-        "Find customers with at least 5 failed transactions",
-        "Show me the profile of customer 100"
-    ]
-
-    for example in examples:
-
-        if st.button(example, use_container_width=True):
-            st.session_state["selected_question"] = example
-
-    st.divider()
-
-    if st.button("Clear conversation"):
-        st.session_state["messages"] = []
-        st.rerun()
-
-
-# Chat history
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-
-for message in st.session_state.messages:
-
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-
-question = st.chat_input(
-    "Ask something about banking transactions..."
-)
-
-if "selected_question" in st.session_state:
-    question = st.session_state.pop("selected_question")
-
-
-if question:
-
-    st.session_state.messages.append({
-        "role": "user",
-        "content": question
-    })
-
-    with st.chat_message("user"):
-        st.markdown(question)
-
-    with st.chat_message("assistant"):
-
-        with st.spinner("Analyzing banking data..."):
-
-            try:
-                answer = ask_agent(agent, question)
-
-                st.markdown(answer)
-
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": answer
-                })
-
-            except Exception as e:
-
-                logging.exception("Agent execution failed")
-
-                st.error(
-                    "An error occurred while processing "
-                    "your request. Check the application logs."
-                )
+.dropdown-footer {
+    flex-shrink: 0;                /* History stays pinned at bottom */
+}
