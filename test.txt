@@ -1,9 +1,110 @@
-langchain>=1.0,<2.0
-langchain-ollama>=1.0,<2.0
-duckdb>=1.4
-pandas>=2.2
-numpy>=2.0
-faker>=30
-streamlit>=1.40
-python-dotenv>=1.0
-pydantic>=2.0
+
+import os
+import numpy as np
+import pandas as pd
+from faker import Faker
+
+fake = Faker()
+rng = np.random.default_rng(42)
+
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
+CUSTOMER_COUNT = 100_000
+TRANSACTION_COUNT = 1_000_000
+
+CITIES = [
+    "Mumbai", "Delhi", "Bangalore", "Chennai",
+    "Hyderabad", "Pune", "Indore", "Kolkata",
+    "Ahmedabad", "Jaipur"
+]
+
+print("Generating customers...")
+
+customers = pd.DataFrame({
+    "customer_id": np.arange(1, CUSTOMER_COUNT + 1),
+    "customer_name": [fake.name() for _ in range(CUSTOMER_COUNT)],
+    "age": rng.integers(18, 75, CUSTOMER_COUNT),
+    "city": rng.choice(CITIES, CUSTOMER_COUNT),
+    "account_balance": np.round(
+        rng.uniform(1000, 2000000, CUSTOMER_COUNT), 2
+    ),
+    "risk_score": rng.integers(1, 101, CUSTOMER_COUNT),
+    "account_type": rng.choice(
+        ["Savings", "Current", "Premium"],
+        CUSTOMER_COUNT
+    )
+})
+
+# Introduce missing values
+customers.loc[
+    rng.choice(CUSTOMER_COUNT, 500, replace=False),
+    "city"
+] = None
+
+customers.to_csv(
+    f"{DATA_DIR}/customers.csv",
+    index=False
+)
+
+print("Generating transactions...")
+
+for start in range(0, TRANSACTION_COUNT, 100_000):
+
+    size = min(100_000, TRANSACTION_COUNT - start)
+
+    customer_ids = rng.integers(
+        1, CUSTOMER_COUNT + 1, size
+    )
+
+    amounts = np.round(
+        rng.lognormal(7, 1.3, size), 2
+    )
+
+    failed = rng.choice(
+        ["SUCCESS", "FAILED"],
+        size,
+        p=[0.94, 0.06]
+    )
+
+    # Higher probability of fraud for unusually large amounts
+    fraud_probability = np.where(
+        amounts > 100000, 0.12, 0.005
+    )
+
+    fraud = rng.random(size) < fraud_probability
+
+    transactions = pd.DataFrame({
+        "transaction_id": np.arange(
+            start + 1, start + size + 1
+        ),
+        "customer_id": customer_ids,
+        "amount": amounts,
+        "city": rng.choice(CITIES, size),
+        "status": failed,
+        "fraud_flag": fraud.astype(int),
+        "transaction_date": (
+            pd.Timestamp("2025-01-01")
+            + pd.to_timedelta(
+                rng.integers(0, 365, size), unit="D"
+            )
+        )
+    })
+
+    # Introduce a small amount of dirty data
+    if start == 0:
+        transactions.loc[
+            rng.choice(size, 200, replace=False),
+            "amount"
+        ] = np.nan
+
+    transactions.to_csv(
+        f"{DATA_DIR}/transactions.csv",
+        mode="w" if start == 0 else "a",
+        header=(start == 0),
+        index=False
+    )
+
+    print(f"Generated {start + size:,} transactions")
+
+print("Dataset generation completed!")
